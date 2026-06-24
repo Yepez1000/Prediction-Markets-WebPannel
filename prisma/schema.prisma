@@ -1,0 +1,227 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url  	    = env("DATABASE_URL")
+  // uncomment next line if you use Prisma <5.10
+  // directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+
+model Event {
+  id      BigInt   @id @default(autoincrement())
+  title   String   @db.VarChar(255)
+  source  String   @db.VarChar(20)
+  markets Market[]
+
+  @@map("event")
+}
+
+model Market {
+  id            String                    @id @db.VarChar(100)
+  eventId       BigInt?                   @map("event_id")
+  question      String                    @db.VarChar(255)
+  startDate     String                    @db.VarChar(255)
+  endDate       String                    @db.VarChar(255)
+  liquidity     Float?
+  volume        Float
+  spread        Float
+  source        String                    @db.VarChar(20)
+  deltaT        String?                   @db.VarChar(20)
+  category      String?                   @db.VarChar(50)
+  gameStartTime String?                   @map("game_start_time") @db.VarChar(255)
+  clobTokenId   String?                   @map("clob_token_id") @db.VarChar(255)
+  slug          String?                   @db.VarChar(255)
+  conditionId   String?                   @map("condition_id") @db.VarChar(100)
+  homeTeam      String?                   @map("home_team") @db.VarChar(255)
+  awayTeam      String?                   @map("away_team") @db.VarChar(255)
+  homeWins      Int?                      @map("home_wins")
+  awayWins      Int?                      @map("away_wins")
+  event         Event?                    @relation(fields: [eventId], references: [id])
+  trades        Trade[]
+  paperTrades   PaperTrade[]
+  priceHistory  PriceHistory[]
+  positions     InsiderPositionHistory[]
+
+  @@map("market")
+}
+
+model Trade {
+  id                  BigInt    @id @default(autoincrement())
+  marketId            String    @map("market_id") @db.VarChar(100)
+  timestamp           String    @db.VarChar(255)
+  price               Float
+  action              String    @db.VarChar(255)
+  pnl                 String    @db.VarChar(255)
+  pos                 Int
+  orderId             String?   @map("order_id") @db.VarChar(255)
+  verified            Boolean
+  createdAt           DateTime? @map("created_at")
+  signalValue         Float?    @map("signal_value")
+  allInsidersAgree    Boolean?  @map("all_insiders_agree")
+  portfolioFraction   Float?    @map("portfolio_fraction")
+  signalWalletsJson   String?   @map("signal_wallets_json") @db.Text
+  signalWalletCount   Int?      @map("signal_wallet_count")
+  topInsiderWallet    String?   @map("top_insider_wallet") @db.VarChar(255)
+  topInsiderSize      Float?    @map("top_insider_size")
+  topInsiderOutcome   String?   @map("top_insider_outcome") @db.VarChar(50)
+  topInsiderAvgPrice  Float?    @map("top_insider_avg_price")
+  totalInsiderSize    Float?    @map("total_insider_size")
+  exitReason          String?   @map("exit_reason") @db.VarChar(255)
+  sessionId           String?   @map("session_id") @db.VarChar(36)
+  market              Market?   @relation(fields: [marketId], references: [id])
+
+  @@map("trades")
+}
+
+model PaperTrade {
+  id                  BigInt    @id @default(autoincrement())
+  marketId            String    @map("market_id") @db.VarChar(100)
+  timestamp           String    @db.VarChar(255)
+  price               Float
+  action              String    @db.VarChar(255)
+  pnl                 String    @db.VarChar(255)
+  pos                 Int
+  orderId             String?   @map("order_id") @db.VarChar(255)
+  verified            Boolean
+  createdAt           DateTime? @map("created_at")
+  signalValue         Float?    @map("signal_value")
+  allInsidersAgree    Boolean?  @map("all_insiders_agree")
+  portfolioFraction   Float?    @map("portfolio_fraction")
+  signalWalletsJson   String?   @map("signal_wallets_json") @db.Text
+  signalWalletCount   Int?      @map("signal_wallet_count")
+  topInsiderWallet    String?   @map("top_insider_wallet") @db.VarChar(255)
+  topInsiderSize      Float?    @map("top_insider_size")
+  topInsiderOutcome   String?   @map("top_insider_outcome") @db.VarChar(50)
+  topInsiderAvgPrice  Float?    @map("top_insider_avg_price")
+  totalInsiderSize    Float?    @map("total_insider_size")
+  exitReason          String?   @map("exit_reason") @db.VarChar(255)
+  sessionId           String?   @map("session_id") @db.VarChar(36)
+  instanceName        String?   @map("instance_name") @db.VarChar(64)
+  market              Market?   @relation(fields: [marketId], references: [id])
+
+  @@map("paper_trades")
+}
+
+model TradeAnalyticsEvent {
+  id                 BigInt    @id @default(autoincrement())
+  createdAt          DateTime  @default(now()) @map("created_at")
+  eventType          String    @map("event_type") @db.VarChar(50)
+  status             String    @db.VarChar(50)
+  reason             String?   @db.VarChar(255)
+  strategyName       String    @map("strategy_name") @db.VarChar(64)
+  allocationMode     String?   @map("allocation_mode") @db.VarChar(64)
+  platform           String    @db.VarChar(20)
+  paperMode          Boolean   @map("paper_mode")
+  sessionId          String?   @map("session_id") @db.VarChar(36)
+  instanceName       String?   @map("instance_name") @db.VarChar(64)
+  configProfile      String?   @map("config_profile") @db.VarChar(64)
+  marketId           String?   @map("market_id") @db.VarChar(100)
+  clobTokenId        String?   @map("clob_token_id") @db.VarChar(255)
+  conditionId        String?   @map("condition_id") @db.VarChar(100)
+  marketTitle        String?   @map("market_title") @db.VarChar(255)
+  outcome            String?   @db.VarChar(50)
+  side               String?   @db.VarChar(10)
+  requestedShares    Float?    @map("requested_shares")
+  filledShares       Float?    @map("filled_shares")
+  price              Float?
+  grossCash          Float?    @map("gross_cash")
+  fee                Float?
+  netCashDelta       Float?    @map("net_cash_delta")
+  orderId            String?   @map("order_id") @db.VarChar(255)
+  targetDollars      Float?    @map("target_dollars")
+  targetShares       Float?    @map("target_shares")
+  heldBefore         Float?    @map("held_before")
+  heldAfter          Float?    @map("held_after")
+  sourceWallet       String?   @map("source_wallet") @db.VarChar(255)
+  sourcePositionSize Float?    @map("source_position_size")
+  signalWalletsJson  String?   @map("signal_wallets_json") @db.Text
+  contextJson        String?   @map("context_json") @db.Text
+
+  @@index([strategyName, paperMode, sessionId], map: "ix_trade_analytics_events_strategy_session")
+  @@index([createdAt], map: "ix_trade_analytics_events_created_at")
+  @@index([sourceWallet], map: "ix_trade_analytics_events_source_wallet")
+  @@index([clobTokenId], map: "ix_trade_analytics_events_clob_token_id")
+  @@index([marketId], map: "ix_trade_analytics_events_market_id")
+  @@map("trade_analytics_events")
+}
+
+model PriceHistory {
+  id           BigInt  @id @default(autoincrement())
+  marketId     String  @map("market_id") @db.VarChar(100)
+  timestamp    String  @db.VarChar(255)
+  yesBuyPrice  Float   @map("yes_buy_price")
+  yesSellPrice Float   @map("yes_sell_price")
+  noBuyPrice   Float   @map("no_buy_price")
+  noSellPrice  Float   @map("no_sell_price")
+  midPrice     Float?  @map("mid_price")
+  market       Market? @relation(fields: [marketId], references: [id])
+
+  @@unique([marketId, timestamp], map: "uq_price_history_market_timestamp")
+  @@map("price_history")
+}
+
+model InsiderPositionHistory {
+  id              BigInt    @id @default(autoincrement())
+  marketId        String    @map("market_id") @db.VarChar(100)
+  timestamp       String    @db.VarChar(255)
+  insiderWallet   String    @map("insider_wallet") @db.VarChar(255)
+  suspicionScore  Float     @map("suspicion_score")
+  outcome         String    @db.VarChar(50)
+  size            Float
+  avgPrice        Float?    @map("avg_price")
+  curPrice        Float?    @map("cur_price")
+  initialValue    Float?    @map("initial_value")
+  currentValue    Float?    @map("current_value")
+  realizedPnl     Float?    @map("realized_pnl")
+  changeType      String    @map("change_type") @db.VarChar(20)
+  deltaT          String?   @db.VarChar(20)
+  category        String?   @db.VarChar(50)
+  market          Market?   @relation(fields: [marketId], references: [id])
+
+  @@map("insider_position_history")
+}
+
+model FlaggedWallet {
+  wallet                    String     @id @db.Text
+  suspicionScore            Float      @map("suspicion_score")
+  signalsTriggered          String?    @map("signals_triggered") @db.Text
+  profitFactor              Float?     @map("profit_factor")
+  winRate                   Float?     @map("win_rate")
+  totalEstimatedPnlUsd      Float?     @map("total_estimated_pnl_usd")
+  bestSingleTradeRoiPct     Float?     @map("best_single_trade_roi_pct")
+  fundToFirstTradeGapHours  Float?     @map("fund_to_first_trade_gap_hours")
+  fundingSourceWallet       String?    @map("funding_source_wallet") @db.Text
+  fundingNetworkFlagged     Boolean?   @map("funding_network_flagged")
+  totalMarketsTraded        Int?       @map("total_markets_traded")
+  longestWinStreak          Int?       @map("longest_win_streak")
+  binomialPValue            Float?     @map("binomial_p_value")
+  firstSeen                 DateTime?  @map("first_seen") @db.Timestamptz
+  scannedAt                 DateTime   @map("scanned_at") @db.Timestamptz
+  batchId                   String?    @map("batch_id") @db.Text
+
+  @@map("flagged_wallets")
+}
+
+model FlaggedWalletMm {
+  wallet                    String     @id @db.Text
+  suspicionScore            Float      @map("suspicion_score")
+  signalsTriggered          String?    @map("signals_triggered") @db.Text
+  profitFactor              Float?     @map("profit_factor")
+  winRate                   Float?     @map("win_rate")
+  totalEstimatedPnlUsd      Float?     @map("total_estimated_pnl_usd")
+  bestSingleTradeRoiPct     Float?     @map("best_single_trade_roi_pct")
+  fundToFirstTradeGapHours  Float?     @map("fund_to_first_trade_gap_hours")
+  fundingSourceWallet       String?    @map("funding_source_wallet") @db.Text
+  fundingNetworkFlagged     Boolean?   @map("funding_network_flagged")
+  totalMarketsTraded        Int?       @map("total_markets_traded")
+  longestWinStreak          Int?       @map("longest_win_streak")
+  binomialPValue            Float?     @map("binomial_p_value")
+  firstSeen                 DateTime?  @map("first_seen") @db.Timestamptz
+  scannedAt                 DateTime   @map("scanned_at") @db.Timestamptz
+  batchId                   String?    @map("batch_id") @db.Text
+
+  @@map("flagged_wallets_mm_test")
+}
