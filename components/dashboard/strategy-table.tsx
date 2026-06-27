@@ -13,7 +13,7 @@ export function StrategyTable({
       <CardHeader>
         <CardTitle className="font-mono text-primary">Strategy Comparison</CardTitle>
         <CardDescription>
-          Paper/live groups split by strategy, allocation mode, and instance.
+          Family-level rollups split by mode, allocation, and container.
         </CardDescription>
       </CardHeader>
       <CardContent>

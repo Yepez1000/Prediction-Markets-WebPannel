@@ -3,24 +3,23 @@
 @tailwind utilities;
 
 :root {
-  --background: 224 33% 5%;
-  --foreground: 186 26% 88%;
-  --card: 222 30% 8%;
-  --card-foreground: 186 26% 88%;
-  --muted: 222 23% 13%;
-  --muted-foreground: 187 12% 63%;
-  --border: 187 28% 24%;
-  --input: 222 26% 10%;
-  --ring: 184 95% 57%;
-  --primary: 184 95% 57%;
-  --primary-foreground: 224 38% 5%;
-  --destructive: 351 86% 70%;
+  --background: 222 24% 6%;
+  --foreground: 210 20% 92%;
+  --card: 222 18% 9%;
+  --card-foreground: 210 20% 92%;
+  --muted: 222 14% 14%;
+  --muted-foreground: 215 10% 60%;
+  --border: 222 12% 20%;
+  --input: 222 16% 11%;
+  --ring: 214 95% 58%;
+  --primary: 214 95% 58%;
+  --primary-foreground: 0 0% 100%;
+  --destructive: 0 72% 58%;
   --destructive-foreground: 0 0% 100%;
-  --profit: 135 68% 65%;
-  --loss: 351 86% 70%;
-  --caution: 49 90% 66%;
-  --violet-wire: 294 73% 75%;
-  --panel-line: 184 95% 57%;
+  --profit: 145 64% 48%;
+  --loss: 0 72% 58%;
+  --caution: 42 84% 56%;
+  --source: 265 83% 72%;
   --radius: 0.5rem;
 }
 
@@ -34,80 +33,25 @@ html {
 
 body {
   @apply min-h-screen bg-background text-foreground antialiased;
-  background:
-    linear-gradient(90deg, hsl(135 35% 8% / 0.18), hsl(294 35% 10% / 0.18)),
-    repeating-linear-gradient(
-      0deg,
-      hsl(0 0% 100% / 0.025) 0,
-      hsl(0 0% 100% / 0.025) 1px,
-      transparent 1px,
-      transparent 5px
-    ),
-    linear-gradient(180deg, hsl(224 33% 5%) 0%, hsl(228 34% 4%) 100%),
-    radial-gradient(800px at center, hsl(184 95% 57% / 0.06), transparent 70%),
-    radial-gradient(600px at center, hsl(294 73% 75% / 0.05), transparent 70%),
-    radial-gradient(500px at center, hsl(220 50% 60% / 0.04), transparent 70%);
-  background-size: auto, auto, auto, 2400px 2400px, 1800px 1800px, 1400px 1400px;
-  background-position: 0% 0%, 0 0, 0 0, -200px -300px, 150px 250px, 350px -100px;
-  background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+  background: hsl(var(--background));
 }
 
 ::selection {
-  background: hsl(var(--primary) / 0.28);
+  background: hsl(var(--primary) / 0.25);
 }
 
 .metric-grid {
   width: 100%;
   min-width: 0;
-  grid-template-columns: 1fr;
-}
-
-.metric-grid > * {
-  min-width: 0;
-}
-
-@media (min-width: 640px) {
-  .metric-grid {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  }
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .terminal-panel {
-  position: relative;
-  box-shadow:
-    inset 0 1px 0 hsl(var(--panel-line) / 0.25),
-    0 0 0 1px hsl(var(--border) / 0.55),
-    0 18px 42px hsl(220 40% 2% / 0.35);
-}
-
-.terminal-panel::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  background:
-    linear-gradient(90deg, hsl(var(--profit) / 0.08), transparent 38%, hsl(var(--violet-wire) / 0.08)),
-    linear-gradient(180deg, hsl(var(--panel-line) / 0.08), transparent 32%);
+  box-shadow: none;
 }
 
 .terminal-label {
-  color: hsl(var(--caution));
+  color: hsl(var(--muted-foreground));
   font-family: var(--font-mono, ui-monospace), SFMono-Regular, Menlo, monospace;
   letter-spacing: 0;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  @keyframes lavaLamp {
-    0% { background-position: 0% 0%, 0 0, 0 0, -200px -300px, 150px 250px, 350px -100px; }
-    20% { background-position: 0% 0%, 0 0, 0 0, -450px -100px, -100px 350px, 200px 150px; }
-    40% { background-position: 0% 0%, 0 0, 0 0, -100px -450px, 250px 100px, -150px -250px; }
-    60% { background-position: 0% 0%, 0 0, 0 0, -350px -50px, 50px -150px, 450px 50px; }
-    80% { background-position: 0% 0%, 0 0, 0 0, -50px -150px, -200px 50px, 100px -350px; }
-    100% { background-position: 0% 0%, 0 0, 0 0, -200px -300px, 150px 250px, 350px -100px; }
-  }
-
-  body {
-    animation: lavaLamp 25s ease-in-out infinite;
-  }
 }

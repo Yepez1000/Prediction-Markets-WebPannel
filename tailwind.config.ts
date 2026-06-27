@@ -33,7 +33,8 @@ const config: Config = {
         },
         profit: "hsl(var(--profit))",
         loss: "hsl(var(--loss))",
-        caution: "hsl(var(--caution))"
+        caution: "hsl(var(--caution))",
+        source: "hsl(var(--source))"
       },
       borderRadius: {
         lg: "var(--radius)",

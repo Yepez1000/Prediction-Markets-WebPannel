@@ -1,13 +1,22 @@
 export type DashboardFilters = {
   mode?: string;
   strategy?: string;
+  deployment?: string;
   instance?: string;
   session?: string;
   category?: string;
+  asset?: string;
   wallet?: string;
+  source?: string;
   start?: string;
   end?: string;
+  pnlView?: "mark" | "realized";
+  sourceScope?: "matched" | "wallet";
+  pnlUnit?: "usd" | "percent";
 };
+
+export type RuntimeMode = "paper" | "live";
+export type RunStatus = "active" | "stopped" | "failed" | "archived";
 
 export type Kpi = {
   label: string;
@@ -45,10 +54,269 @@ export type StrategySummary = {
   skipped: number;
 };
 
+export type DeploymentSummary = {
+  id: string;
+  deploymentId?: string;
+  deploymentKey?: string;
+  label: string;
+  strategyFamily: string;
+  strategyName: string;
+  allocationMode: string;
+  mode: RuntimeMode;
+  status: RunStatus;
+  instanceName: string;
+  configProfile: string;
+  containerId?: string;
+  hostname?: string;
+  startedAt: string;
+  stoppedAt?: string;
+  followedWallet: string;
+  totalPnl: number;
+  realizedPnl: number;
+  unrealizedPnl?: number;
+  netPnlAfterFees: number;
+  netPnl: number;
+  grossPnl: number;
+  fees: number;
+  trades: number;
+  markets: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  averageTradeSize: number;
+  totalVolume: number;
+  maxDrawdown: number;
+  sharpeRatio: number;
+  profitFactor: number;
+  bestTrade: number;
+  worstTrade: number;
+  fillFailureRate: number;
+  fillRate: number;
+  failedOrderRate: number;
+  skippedOpportunityCount: number;
+  partialFillRate: number;
+  cancelRate: number;
+  rejectedOrderCount: number;
+  averageFeePerFill: number;
+  averageSlippage?: number;
+  averageSignalToOrderSeconds?: number;
+  averageOrderToResolutionSeconds?: number;
+  cashDrag: number;
+  unusedAllocation: number;
+  maxCapitalDeployed: number;
+  resolvedMarkets: number;
+  averagePnlPerResolvedMarket: number;
+  maxIntradayDrawdown: number;
+  worstMarket?: string;
+  worstMarketPnl: number;
+  worstFiveMinuteWindow: number;
+  worstFifteenMinuteWindow: number;
+  worstOneHourWindow: number;
+  pnlVolatility: number;
+  downsideDeviation: number;
+  expectancyPerTrade: number;
+  averageWin: number;
+  averageLoss: number;
+  winLossRatio: number;
+  consecutiveWins: number;
+  consecutiveLosses: number;
+  exposureByAsset: BreakdownItem[];
+  pnlByWallet: BreakdownItem[];
+  pnlByConfig: BreakdownItem[];
+  pnlByAllocationMode: BreakdownItem[];
+  pnlByMarketType: BreakdownItem[];
+  pnlByAsset: BreakdownItem[];
+  pnlByTimeOfDay: BreakdownItem[];
+  pnlByLiquidityBucket: BreakdownItem[];
+  pnlBySourcePositionSize: BreakdownItem[];
+  pnlBySignalStrength: BreakdownItem[];
+  pnlByConfidenceScore: BreakdownItem[];
+  dataQuality: DataQualityMetrics;
+  activeDeployments: number;
+  activeContainers: number;
+  lastTradeAt?: string;
+  sessionCount: number;
+  pnlSeries: PnlPoint[];
+};
+
+export type BreakdownItem = {
+  label: string;
+  value: number;
+  count: number;
+};
+
+export type DataQualityMetrics = {
+  missingMarketResolutions: number;
+  eventsWithoutSessionId: number;
+  eventsWithoutSourceWallet: number;
+  eventsWithoutConfigSnapshot: number;
+  duplicateOrderIds: number;
+  duplicateEventRows: number;
+  nullNetCashDelta: number;
+  inconsistentMarketTitles: number;
+  staleContainers: number;
+  eventsFromUnknownDeployments: number;
+};
+
+export type SessionSummary = DeploymentSummary & {
+  deploymentId?: string;
+  deploymentKey?: string;
+  sessionId: string;
+  polymarketWalletUrl?: string;
+  sizing?: PortfolioSizingSnapshot;
+  configSnapshot?: Record<string, unknown>;
+  marketPositions: MarketPositionSummary[];
+};
+
+export type MarketPositionSummary = {
+  key: string;
+  market: string;
+  outcome?: string;
+  asset?: string;
+  conditionId?: string;
+  polymarketUrl?: string;
+  marketType?: string;
+  liquidity?: number;
+  sourcePositionSize?: number;
+  signalStrength?: number;
+  confidenceScore?: number;
+  boughtShares: number;
+  buyCost: number;
+  averageBuyPrice: number;
+  soldShares: number;
+  sellProceeds: number;
+  averageSellPrice: number;
+  openShares: number;
+  realizedPnl: number;
+  fees: number;
+  fillCount: number;
+  resolved: boolean;
+  firstTradeAt?: string;
+  lastTradeAt?: string;
+};
+
+export type PortfolioSizingSnapshot = {
+  computedPct: number;
+  configuredPct?: number;
+  percentile?: number;
+  percentileValue?: number;
+  riskFraction?: number;
+  riskBudget?: number;
+  cycleCap?: number;
+  bankroll?: number;
+  sampleCount?: number;
+  source: string;
+  formula?: string;
+  summary?: {
+    average?: number;
+    median?: number;
+    stdev?: number;
+    minimum?: number;
+    p75?: number;
+    p90?: number;
+    p95?: number;
+    p99?: number;
+    maximum?: number;
+  };
+  distribution?: {
+    bins: Array<{ x0: number; x1: number; count: number }>;
+    normalFit: Array<{ x: number; density: number }>;
+    maxCount?: number;
+    maxDensity?: number;
+  };
+};
+
+export type PnlPoint = {
+  when: string;
+  value: number;
+  delta: number;
+  price?: number;
+  market?: string;
+  action?: string;
+};
+
+export type ComparisonPnlPoint = {
+  when: string;
+  ours: number;
+  source: number;
+};
+
+export type PositionVerdict =
+  | "matched"
+  | "partial"
+  | "overfilled"
+  | "missed"
+  | "wrong-outcome"
+  | "source-only"
+  | "unsupported";
+
+export type PositionReconciliation = {
+  key: string;
+  conditionId: string;
+  asset?: string;
+  market: string;
+  outcome?: string;
+  ourCurrentShares: number;
+  sourceCurrentShares: number;
+  expectedShares: number;
+  requestedShares: number;
+  filledShares: number;
+  fillPercent?: number;
+  entryLagSeconds?: number;
+  exitLagSeconds?: number;
+  entryPriceDifference?: number;
+  exitPriceDifference?: number;
+  historyDivergencePercent?: number;
+  ourPnl: number;
+  sourcePnl?: number;
+  pnlGap?: number;
+  verdict: PositionVerdict;
+  notes: string[];
+};
+
+export type AlphaGapFactor = {
+  label: string;
+  impact: number;
+  detail: string;
+};
+
+export type ComparisonSummary = {
+  matchedPositions: number;
+  sourceOnlyPositions: number;
+  wrongOutcomePositions: number;
+  correctSizePositions: number;
+  partialFillPositions: number;
+  medianEntryLagSeconds?: number;
+  medianExitLagSeconds?: number;
+  ourPnl: number;
+  sourcePnl: number;
+  pnlGap: number;
+  factors: AlphaGapFactor[];
+};
+
+export type SessionComparison = {
+  sessionId: string;
+  sourceWallet: string;
+  startedAt: string;
+  endedAt: string;
+  updatedAt: string;
+  sourceScope: "matched" | "wallet";
+  unit: "usd" | "percent";
+  series: ComparisonPnlPoint[];
+  realizedSeries: ComparisonPnlPoint[];
+  positions: PositionReconciliation[];
+  summary: ComparisonSummary;
+  warnings: string[];
+  truncated: boolean;
+  error?: string;
+};
+
 export type RecentEvidence = {
   id: string;
   when: string;
   mode: "paper" | "live";
+  deploymentId: string;
+  sessionId: string;
   strategy: string;
   market: string;
   wallet: string;
@@ -60,9 +328,11 @@ export type RecentEvidence = {
 
 export type FilterOptions = {
   strategies: string[];
+  deployments: Array<{ label: string; value: string }>;
   instances: string[];
   sessions: string[];
   categories: string[];
+  assets: string[];
 };
 
 export type DashboardData = {
@@ -70,6 +340,9 @@ export type DashboardData = {
   isConfigured: boolean;
   error?: string;
   kpis: Kpi[];
+  warnings: string[];
+  deployments: DeploymentSummary[];
+  sessions: SessionSummary[];
   wallets: WalletSummary[];
   strategies: StrategySummary[];
   evidence: RecentEvidence[];
