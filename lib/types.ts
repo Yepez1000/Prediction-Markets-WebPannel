@@ -261,15 +261,59 @@ export type PositionReconciliation = {
   expectedShares: number;
   requestedShares: number;
   filledShares: number;
+  sourceSignalShares?: number;
+  sourcePeakShares?: number;
+  portfolioSizingPct?: number;
+  proportionalTargetShares?: number;
+  ourBoughtShares: number;
+  ourPeakShares: number;
+  enteredAt?: string;
   fillPercent?: number;
   entryLagSeconds?: number;
   exitLagSeconds?: number;
-  entryPriceDifference?: number;
-  exitPriceDifference?: number;
+  sourceEntryPrice?: number;
+  ourEntryPrice?: number;
+  sourceExitPrice?: number;
+  ourExitPrice?: number;
+  sourceExitType?: string;
+  entryPriceDelta?: number;
+  exitPriceDelta?: number;
+  entryDelayPnl?: number;
+  exitDelayPnl?: number;
   historyDivergencePercent?: number;
   ourPnl: number;
   sourcePnl?: number;
   pnlGap?: number;
+  ourBuyCapital?: number;
+  sourceBuyCapital?: number;
+  ourFees?: number;
+  ourTradeReturnPct?: number;
+  sourceTradeReturnPct?: number;
+  ourReturnContributionPct?: number;
+  sourceReturnContributionPct?: number;
+  returnGapContributionPct?: number;
+  cumulativeOurReturnPct?: number;
+  cumulativeSourceReturnPct?: number;
+
+  targetDollars?: number;
+  targetShares?: number;
+  ourTargetPct?: number;
+  entryLagMs?: number;
+  exitLagMs?: number;
+  ourReturnPct?: number;
+  sourceCashPnl?: number;
+  sourceRealizedPnl?: number;
+  sourceReturnPct?: number;
+  pnlGapPct?: number;
+  sourceSeenAt?: number;
+  sourcePositionValue?: number;
+  sourceAvgPrice?: number;
+  ourHeldBefore?: number;
+  ourHeldAfter?: number;
+  ourFillPrice?: number;
+  ourFillTime?: string;
+  sizingErrorPct?: number;
+
   verdict: PositionVerdict;
   notes: string[];
 };
@@ -278,6 +322,7 @@ export type AlphaGapFactor = {
   label: string;
   impact: number;
   detail: string;
+  unit?: "usd" | "pp";
 };
 
 export type ComparisonSummary = {
@@ -291,6 +336,13 @@ export type ComparisonSummary = {
   ourPnl: number;
   sourcePnl: number;
   pnlGap: number;
+  ourReturnPct?: number;
+  sourceReturnPct?: number;
+  pnlGapPct?: number;
+  ourGrossBuyCapital: number;
+  sourceGrossBuyCapital: number;
+  ourAttributionResidual: number;
+  sourceAttributionResidual: number;
   factors: AlphaGapFactor[];
 };
 

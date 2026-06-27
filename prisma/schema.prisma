@@ -221,6 +221,8 @@ model StrategySession {
   lastEventAt        DateTime? @map("last_event_at")
   notes              String?   @db.Text
 
+  reconciliations SessionReconciliation[]
+
   @@index([deploymentId], map: "ix_strategy_sessions_deployment")
   @@index([deploymentKey], map: "ix_strategy_sessions_deployment_key")
   @@index([strategyFamily, mode, status], map: "ix_strategy_sessions_family_mode_status")
@@ -284,6 +286,88 @@ model FlaggedWallet {
   batchId                   String?    @map("batch_id") @db.Text
 
   @@map("flagged_wallets")
+}
+
+model SessionReconciliation {
+  id              BigInt   @id @default(autoincrement())
+  sessionId       String   @map("session_id") @db.VarChar(36)
+  sourceWallet    String   @map("source_wallet") @db.VarChar(255)
+  sourceScope     String   @map("source_scope") @db.VarChar(20)
+  unit            String   @db.VarChar(10)
+  ourPnl          Float    @map("our_pnl")
+  sourcePnl       Float    @map("source_pnl")
+  pnlGap          Float    @map("pnl_gap")
+  ourReturnPct    Float?   @map("our_return_pct")
+  sourceReturnPct Float?   @map("source_return_pct")
+  pnlGapPct       Float?   @map("pnl_gap_pct")
+  factorsJson     String?  @map("factors_json") @db.Text
+  seriesJson      String?  @map("series_json") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  session    StrategySession        @relation(fields: [sessionId], references: [sessionId])
+  positions  ReconciliationPosition[]
+
+  @@index([sessionId])
+  @@index([createdAt])
+  @@map("session_reconciliations")
+}
+
+model ReconciliationPosition {
+  id            BigInt  @id @default(autoincrement())
+  reconciliationId BigInt @map("reconciliation_id")
+
+  key           String   @db.VarChar(255)
+  conditionId   String   @map("condition_id") @db.VarChar(100)
+  market        String   @db.VarChar(255)
+  outcome       String?  @db.VarChar(50)
+  asset         String?  @db.VarChar(255)
+
+  targetShares    Float? @map("target_shares")
+  targetDollars   Float? @map("target_dollars")
+  executedShares  Float? @map("executed_shares")
+  fillPercent     Float? @map("fill_percent")
+  ourTargetPct    Float? @map("our_target_pct")
+
+  entryLagMs      Float? @map("entry_lag_ms")
+  exitLagMs       Float? @map("exit_lag_ms")
+
+  realizedPnl     Float?  @map("realized_pnl")
+  ourReturnPct    Float?  @map("our_return_pct")
+  sourceCashPnl   Float?  @map("source_cash_pnl")
+  sourceRealizedPnl Float? @map("source_realized_pnl")
+  sourceReturnPct Float?  @map("source_return_pct")
+  pnlGapPct       Float?  @map("pnl_gap_pct")
+
+  sourceWallet        String? @map("source_wallet") @db.VarChar(255)
+  sourceSeenAt        Float?  @map("source_seen_at")
+  sourcePositionSize  Float?  @map("source_position_size")
+  sourcePositionValue Float?  @map("source_position_value")
+  sourceAvgPrice      Float?  @map("source_avg_price")
+
+  ourHeldBefore Float?   @map("our_held_before")
+  ourHeldAfter  Float?   @map("our_held_after")
+  ourFillPrice  Float?   @map("our_fill_price")
+  ourFillTime   DateTime? @map("our_fill_time")
+
+  sizingErrorPct  Float? @map("sizing_error_pct")
+  priceSlippage   Float? @map("price_slippage")
+  sourceEntryPrice Float? @map("source_entry_price")
+  ourEntryPrice    Float? @map("our_entry_price")
+  sourceExitPrice  Float? @map("source_exit_price")
+  ourExitPrice     Float? @map("our_exit_price")
+
+  ourCurrentShares    Float? @map("our_current_shares")
+  sourceCurrentShares Float? @map("source_current_shares")
+
+  verdict String  @db.VarChar(30)
+  notes   String? @db.Text
+
+  reconciliation SessionReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+
+  @@index([reconciliationId])
+  @@index([conditionId])
+  @@index([verdict])
+  @@map("reconciliation_positions")
 }
 
 model FlaggedWalletMm {

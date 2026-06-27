@@ -87,6 +87,7 @@ function reconcile(overrides: Partial<Parameters<typeof reconcileSession>[0]> = 
     prices: new Map([[asset, [{ t: new Date("2026-06-26T10:05:00Z").getTime() / 1000, p: 0.7 }]]]),
     sourceScope: "matched",
     unit: "usd",
+    portfolioSizingPct: 0.1,
     ...overrides
   });
 }
@@ -98,7 +99,24 @@ describe("session reconciliation", () => {
     expect(row.verdict).toBe("matched");
     expect(row.fillPercent).toBe(100);
     expect(row.entryLagSeconds).toBe(10);
-    expect(row.entryPriceDifference).toBeCloseTo(0.05);
+    expect(row.sourceEntryPrice).toBe(0.5);
+    expect(row.ourEntryPrice).toBe(0.55);
+    expect(row.entryPriceDelta).toBeCloseTo(0.05);
+    expect(row.entryDelayPnl).toBeCloseTo(-0.5);
+    expect(row.sourceSignalShares).toBe(100);
+    expect(row.proportionalTargetShares).toBe(10);
+    expect(row.ourBoughtShares).toBe(10);
+    expect(row.ourPeakShares).toBe(10);
+    expect(row.sourceTradeReturnPct).toBeCloseTo(40);
+    expect(row.ourTradeReturnPct).toBeCloseTo(27.2727);
+    expect(row.sourceReturnContributionPct).toBeCloseTo(40);
+    expect(row.ourReturnContributionPct).toBeCloseTo(27.2727);
+    expect(row.cumulativeSourceReturnPct).toBeCloseTo(40);
+    expect(row.cumulativeOurReturnPct).toBeCloseTo(27.2727);
+    expect(result.summary.sourceGrossBuyCapital).toBe(50);
+    expect(result.summary.ourGrossBuyCapital).toBe(5.5);
+    expect(result.summary.sourceAttributionResidual).toBeCloseTo(0);
+    expect(result.summary.ourAttributionResidual).toBeCloseTo(0);
     expect(result.series[0]).toMatchObject({ ours: 0, source: 0 });
   });
 
@@ -136,6 +154,41 @@ describe("session reconciliation", () => {
       closedPositions: [position({ size: 0, realizedPnl: 25 })]
     });
     expect(result.positions[0].exitLagSeconds).toBe(15);
+    expect(result.positions[0].sourceExitPrice).toBe(0.75);
+    expect(result.positions[0].ourExitPrice).toBe(0.8);
+    expect(result.positions[0].exitPriceDelta).toBeCloseTo(0.05);
+    expect(result.positions[0].exitDelayPnl).toBeCloseTo(0.5);
     expect(result.realizedSeries.at(-1)!.ours).toBeCloseTo(2.5);
+  });
+
+  it("uses a condition-level MERGE timestamp for exit lag without inventing an exit price", () => {
+    const sell = event({
+      createdAt: new Date("2026-06-26T10:05:15Z"),
+      side: "SELL",
+      price: 0,
+      grossCash: 0,
+      heldAfter: 0
+    });
+    const merge = sourceActivity({
+      timestamp: new Date("2026-06-26T10:05:00Z").getTime() / 1000,
+      type: "MERGE",
+      side: "",
+      price: 0,
+      asset: "",
+      outcome: "",
+      transactionHash: "0x4"
+    });
+    const result = reconcile({
+      events: [event(), sell],
+      activity: [sourceActivity(), merge],
+      currentPositions: [],
+      closedPositions: [position({ size: 0 })]
+    });
+
+    expect(result.positions[0].exitLagSeconds).toBe(15);
+    expect(result.positions[0].sourceExitType).toBe("MERGE");
+    expect(result.positions[0].sourceExitPrice).toBeUndefined();
+    expect(result.positions[0].exitPriceDelta).toBeUndefined();
+    expect(result.positions[0].exitDelayPnl).toBeUndefined();
   });
 });
