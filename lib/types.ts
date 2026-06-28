@@ -13,6 +13,8 @@ export type DashboardFilters = {
   pnlView?: "mark" | "realized";
   sourceScope?: "matched" | "wallet";
   pnlUnit?: "usd" | "percent";
+  sessionSort?: "date" | "name" | "pnl" | "winRate" | "trades";
+  sessionDirection?: "asc" | "desc";
 };
 
 export type RuntimeMode = "paper" | "live";

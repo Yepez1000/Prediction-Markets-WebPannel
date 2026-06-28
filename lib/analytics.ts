@@ -155,10 +155,23 @@ type LifecycleMetrics = {
 
 type MarketMeta = {
   id: string;
+  question: string;
+  clobTokenId: string | null;
+  conditionId: string | null;
   slug: string | null;
   liquidity: number | null;
   category: string | null;
 };
+
+const LIFECYCLE_FILL_EVENT_TYPES = [
+  "order_fill",
+  "fractional_fak_fill",
+  "market_resolution"
+] as const;
+
+function isLifecycleFillEvent(event: Pick<EventLite, "eventType">) {
+  return (LIFECYCLE_FILL_EVENT_TYPES as readonly string[]).includes(event.eventType);
+}
 
 type OverviewMetricRow = {
   kind: "session" | "deployment";
@@ -638,9 +651,7 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
   let maxCapitalDeployed = 0;
 
   for (const event of events) {
-    if (event.eventType !== "order_fill" && event.eventType !== "market_resolution") {
-      continue;
-    }
+    if (!isLifecycleFillEvent(event)) continue;
     if (
       event.status !== "FILLED" &&
       event.status !== "PARTIAL" &&
@@ -661,7 +672,7 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
       `event-${event.id.toString()}`;
     const market = markets.get(key) ?? {
       key,
-      market: event.marketTitle ?? "Unknown market",
+      market: event.marketTitle ?? event.marketMeta?.question ?? "Unknown market",
       outcome: event.outcome ?? stringFromContext(event.context, "source_outcome"),
       asset: event.clobTokenId ?? undefined,
       conditionId: event.conditionId ?? undefined,
@@ -727,7 +738,7 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
         value: realizedPnl,
         delta: tradePnl,
         price: event.price ?? undefined,
-        market: event.marketTitle ?? undefined,
+        market: event.marketTitle ?? event.marketMeta?.question,
         action: event.eventType
       });
       if (market.openShares <= 1e-9 || event.eventType === "market_resolution") {
@@ -1375,7 +1386,7 @@ async function loadOverviewMetrics(
   deploymentKeys: string[]
 ) {
   const conditions: Prisma.Sql[] = [
-    Prisma.sql`event_type IN ('order_fill', 'market_resolution')`,
+    Prisma.sql`event_type IN ('order_fill', 'fractional_fak_fill', 'market_resolution')`,
     Prisma.sql`status IN ('FILLED', 'PARTIAL', 'RESOLVED')`,
     Prisma.sql`UPPER(side) IN ('BUY', 'SELL')`,
     Prisma.sql`filled_shares > 0`
@@ -1634,7 +1645,7 @@ export async function getDashboardData(
       }),
       prisma.strategySession.findMany({
         where: sessionWhere(filters),
-        orderBy: [{ lastEventAt: "desc" }, { startedAt: "desc" }],
+        orderBy: [{ startedAt: "desc" }, { lastEventAt: "desc" }],
         take: filters.deployment && filters.deployment !== "all" ? 120 : 60,
         select: {
           sessionId: true,
@@ -1701,25 +1712,50 @@ export async function getDashboardData(
     const marketIds = Array.from(
       new Set(summaryEvents.map((event) => event.marketId).filter(Boolean) as string[])
     );
+    const clobTokenIds = Array.from(
+      new Set(summaryEvents.map((event) => event.clobTokenId).filter(Boolean) as string[])
+    );
+    const conditionIds = Array.from(
+      new Set(summaryEvents.map((event) => event.conditionId).filter(Boolean) as string[])
+    );
     const marketRows =
-      marketIds.length === 0
+      marketIds.length === 0 && clobTokenIds.length === 0 && conditionIds.length === 0
         ? []
         : await prisma.market.findMany({
-            where: { id: { in: marketIds } },
+            where: {
+              OR: [
+                ...(marketIds.length > 0 ? [{ id: { in: marketIds } }] : []),
+                ...(clobTokenIds.length > 0
+                  ? [{ clobTokenId: { in: clobTokenIds } }]
+                  : []),
+                ...(conditionIds.length > 0
+                  ? [{ conditionId: { in: conditionIds } }]
+                  : [])
+              ]
+            },
             select: {
               id: true,
+              question: true,
+              clobTokenId: true,
+              conditionId: true,
               slug: true,
               liquidity: true,
               category: true
             }
           });
-    const marketMeta = new Map<string, MarketMeta>(
-      marketRows.map((row) => [row.id, row])
-    );
+    const marketMeta = new Map<string, MarketMeta>();
+    for (const row of marketRows) {
+      marketMeta.set(row.id, row);
+      if (row.clobTokenId) marketMeta.set(row.clobTokenId, row);
+      if (row.conditionId) marketMeta.set(row.conditionId, row);
+    }
     const enrichedEvents: EventWithContext[] = summaryEvents.map((event) => ({
       ...event,
       context: parseJsonRecord(event.contextJson) ?? {},
-      marketMeta: event.marketId ? marketMeta.get(event.marketId) : undefined
+      marketMeta:
+        (event.marketId ? marketMeta.get(event.marketId) : undefined) ??
+        (event.clobTokenId ? marketMeta.get(event.clobTokenId) : undefined) ??
+        (event.conditionId ? marketMeta.get(event.conditionId) : undefined)
     }));
     const eventsByDeployment = new Map<string, EventWithContext[]>();
     const eventsBySession = new Map<string, EventWithContext[]>();
@@ -1839,13 +1875,22 @@ export async function getDashboardData(
       })
       .sort((a, b) => {
         if (selectedSessionId) return a.sessionId === selectedSessionId ? -1 : 1;
-        return new Date(b.lastTradeAt ?? b.startedAt).getTime() - new Date(a.lastTradeAt ?? a.startedAt).getTime();
+        const sort = filters.sessionSort ?? "date";
+        const direction = filters.sessionDirection ?? "desc";
+        const multiplier = direction === "asc" ? 1 : -1;
+        if (sort === "name") return multiplier * a.label.localeCompare(b.label);
+        if (sort === "pnl") return multiplier * (a.netPnl - b.netPnl);
+        if (sort === "winRate") return multiplier * (a.winRate - b.winRate);
+        if (sort === "trades") return multiplier * (a.trades - b.trades);
+        return multiplier * (
+          new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
+        );
       });
 
     const evidence =
       selectedSessionId && sessionMap.has(selectedSessionId)
         ? buildEvidence(
-            summaryEvents.filter((event) => event.sessionId === selectedSessionId),
+            enrichedEvents.filter((event) => event.sessionId === selectedSessionId),
             selectedTrades
           )
         : [];
@@ -1910,10 +1955,17 @@ export async function getDashboardData(
   }
 }
 
-function buildEvidence(events: EventLite[], trades: TradeLite[]): RecentEvidence[] {
-  const eventEvidence: RecentEvidence[] = events
-    .filter((event) => event.eventType !== "sizing_snapshot")
-    .slice(-20)
+function buildEvidence(events: EventWithContext[], trades: TradeLite[]): RecentEvidence[] {
+  const evidenceEvents = [
+    ...events.filter(isLifecycleFillEvent).slice(-30),
+    ...events
+      .filter(
+        (event) =>
+          !isLifecycleFillEvent(event) && event.eventType !== "sizing_snapshot"
+      )
+      .slice(-10)
+  ];
+  const eventEvidence: RecentEvidence[] = evidenceEvents
     .map((event) => ({
       id: `event-${event.id.toString()}`,
       when: event.createdAt.toISOString(),
@@ -1921,7 +1973,7 @@ function buildEvidence(events: EventLite[], trades: TradeLite[]): RecentEvidence
       deploymentId: event.deploymentKey ?? event.deploymentId ?? "standalone",
       sessionId: event.sessionId ?? "unassigned",
       strategy: event.strategyName,
-      market: event.marketTitle ?? "Unknown market",
+      market: event.marketTitle ?? event.marketMeta?.question ?? "Unknown market",
       wallet: event.sourceWallet ?? firstWallet(event.signalWalletsJson),
       action: event.eventType,
       status: event.status,

@@ -1,4 +1,12 @@
-import { ArrowLeft, Box, GitBranch, PlayCircle } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  Box,
+  ChevronsUpDown,
+  GitBranch,
+  PlayCircle
+} from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -95,18 +103,28 @@ export function DeploymentGrid({
           {sessions.length === 0 ? (
             <EmptyState message="No sessions match the current filters." />
           ) : (
-            <div className="divide-y divide-border rounded-md border border-border">
-              {sessions.slice(0, 30).map((session) => (
-                <SessionRow
-                  key={session.sessionId}
-                  session={session}
-                  href={detailHref(filters, {
-                    deployment: session.deploymentKey,
-                    session: session.sessionId,
-                    mode: session.mode
-                  })}
-                />
-              ))}
+            <div className="overflow-hidden rounded-md border border-border">
+              <div className="hidden grid-cols-[minmax(0,1fr)_150px_120px_100px_90px_86px] items-center border-b border-border bg-muted/20 px-3 py-1 md:grid">
+                <SortHeader label="Session" value="name" filters={filters} />
+                <SortHeader label="Started" value="date" filters={filters} />
+                <SortHeader label="PnL" value="pnl" filters={filters} align="right" />
+                <SortHeader label="Win rate" value="winRate" filters={filters} align="right" />
+                <SortHeader label="Trades" value="trades" filters={filters} align="right" />
+                <span className="px-2 text-xs font-medium text-muted-foreground">Mode</span>
+              </div>
+              <div className="divide-y divide-border">
+                {sessions.slice(0, 30).map((session) => (
+                  <SessionRow
+                    key={session.sessionId}
+                    session={session}
+                    href={detailHref(filters, {
+                      deployment: session.deploymentKey,
+                      session: session.sessionId,
+                      mode: session.mode
+                    })}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </CardContent>
@@ -151,21 +169,68 @@ function SessionRow({
 }) {
   return (
     <div className="bg-card px-3 py-2 hover:bg-muted/30">
-      <Link href={href} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_120px_110px_86px] md:items-center">
+      <Link href={href} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_150px_120px_100px_90px_86px] md:items-center">
         <RunName
           icon={<PlayCircle className="size-4 text-primary" />}
           title={session.label}
           subtitle={`${session.strategyFamily}${session.deploymentKey ? ` / ${shortWallet(session.deploymentKey)}` : " / standalone"}`}
         />
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+          {new Date(session.startedAt).toLocaleString()}
+        </span>
         <PnlValue value={session.netPnl} />
-        <span className="font-mono text-sm tabular-nums">
+        <span className="text-right font-mono text-sm tabular-nums">
           {formatPercent(session.winRate)}
+        </span>
+        <span className="text-right font-mono text-sm tabular-nums">
+          {session.trades}
         </span>
         <Badge variant={session.mode === "paper" ? "secondary" : "caution"}>
           {session.mode}
         </Badge>
       </Link>
     </div>
+  );
+}
+
+function SortHeader({
+  label,
+  value,
+  filters,
+  align = "left"
+}: {
+  label: string;
+  value: NonNullable<DashboardFilters["sessionSort"]>;
+  filters: DashboardFilters;
+  align?: "left" | "right";
+}) {
+  const active = (filters.sessionSort ?? "date") === value;
+  const currentDirection = filters.sessionDirection ?? "desc";
+  const nextDirection = active && currentDirection === "desc" ? "asc" : "desc";
+  const Icon = active
+    ? currentDirection === "desc"
+      ? ArrowDown
+      : ArrowUp
+    : ChevronsUpDown;
+
+  return (
+    <Button
+      asChild
+      variant="ghost"
+      size="sm"
+      className={align === "right" ? "justify-end px-2" : "justify-start px-2"}
+    >
+      <Link
+        href={detailHref(filters, {
+          sessionSort: value,
+          sessionDirection: nextDirection
+        })}
+        aria-label={`Sort sessions by ${label} ${nextDirection === "desc" ? "descending" : "ascending"}`}
+      >
+        {label}
+        <Icon className={active ? "size-3 text-primary" : "size-3 opacity-50"} />
+      </Link>
+    </Button>
   );
 }
 
@@ -197,8 +262,8 @@ function PnlValue({ value }: { value: number }) {
     <span
       className={
         value >= 0
-          ? "font-mono text-sm tabular-nums text-profit"
-          : "font-mono text-sm tabular-nums text-loss"
+          ? "text-right font-mono text-sm tabular-nums text-profit"
+          : "text-right font-mono text-sm tabular-nums text-loss"
       }
     >
       {formatCurrency(value)}

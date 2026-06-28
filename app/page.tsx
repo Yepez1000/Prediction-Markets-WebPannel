@@ -38,7 +38,9 @@ export default async function Home({
     end: readParam(params, "end"),
     pnlView: readParam(params, "pnlView") as DashboardFilters["pnlView"],
     sourceScope: readParam(params, "sourceScope") as DashboardFilters["sourceScope"],
-    pnlUnit: readParam(params, "pnlUnit") as DashboardFilters["pnlUnit"]
+    pnlUnit: readParam(params, "pnlUnit") as DashboardFilters["pnlUnit"],
+    sessionSort: readParam(params, "sessionSort") as DashboardFilters["sessionSort"],
+    sessionDirection: readParam(params, "sessionDirection") as DashboardFilters["sessionDirection"]
   };
 
   const sessionId = filters.session && filters.session !== "all" ? filters.session : undefined;
