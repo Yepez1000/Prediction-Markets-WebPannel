@@ -13,6 +13,8 @@ export type DashboardFilters = {
   pnlView?: "mark" | "realized";
   sourceScope?: "matched" | "wallet";
   pnlUnit?: "usd" | "percent";
+  deploymentSort?: "date" | "pnl";
+  deploymentDirection?: "asc" | "desc";
   sessionSort?: "date" | "name" | "pnl" | "winRate" | "trades";
   sessionDirection?: "asc" | "desc";
 };
@@ -273,6 +275,7 @@ export type PositionReconciliation = {
   fillPercent?: number;
   entryLagSeconds?: number;
   exitLagSeconds?: number;
+  exitEventOffsetSeconds?: number;
   sourceEntryPrice?: number;
   ourEntryPrice?: number;
   sourceExitPrice?: number;

@@ -72,7 +72,7 @@ export function MarketPositions({
                               {position.outcome}
                             </span>
                           ) : null}
-                          {position.asset ? <span>{position.asset.slice(0, 10)}...</span> : null}
+                          {position.asset ? <span className="break-all">{position.asset}</span> : null}
                         </div>
                       ) : null}
                     </td>

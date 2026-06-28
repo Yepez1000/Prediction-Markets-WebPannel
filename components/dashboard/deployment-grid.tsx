@@ -59,32 +59,45 @@ export function DeploymentGrid({
               <CardTitle>Deployments</CardTitle>
               <CardDescription>Docker groups keyed by deployment_key.</CardDescription>
             </div>
-            {selectedDeployment ? (
-              <Button asChild variant="outline" size="sm">
-                <Link href={detailHref(filters, { deployment: "all", session: "all" })}>
-                  <ArrowLeft className="size-4" />
-                  All
-                </Link>
-              </Button>
-            ) : null}
+            <div className="flex items-center gap-1">
+              <DeploymentSortHeader label="Started" value="date" filters={filters} />
+              <DeploymentSortHeader label="PnL" value="pnl" filters={filters} />
+              {selectedDeployment ? (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={detailHref(filters, { deployment: "all", session: "all" })}>
+                    <ArrowLeft className="size-4" />
+                    All
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
           {deployments.length === 0 ? (
             <EmptyState message="No Docker deployments match the current filters." />
           ) : (
-            <div className="divide-y divide-border rounded-md border border-border">
-              {deployments.slice(0, 20).map((deployment) => (
-                <DeploymentRow
-                  key={deployment.id}
-                  deployment={deployment}
-                  href={detailHref(filters, {
-                    deployment: deployment.deploymentKey ?? deployment.id,
-                    mode: deployment.mode,
-                    session: "all"
-                  })}
-                />
-              ))}
+            <div className="overflow-hidden rounded-md border border-border">
+              <div className="hidden grid-cols-[minmax(0,1fr)_150px_120px_110px_86px] items-center border-b border-border bg-muted/20 px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
+                <span>Deployment</span>
+                <span>Started</span>
+                <span className="text-right">PnL</span>
+                <span>Win rate</span>
+                <span>Mode</span>
+              </div>
+              <div className="divide-y divide-border">
+                {deployments.slice(0, 20).map((deployment) => (
+                  <DeploymentRow
+                    key={deployment.id}
+                    deployment={deployment}
+                    href={detailHref(filters, {
+                      deployment: deployment.deploymentKey ?? deployment.id,
+                      mode: deployment.mode,
+                      session: "all"
+                    })}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </CardContent>
@@ -142,12 +155,15 @@ function DeploymentRow({
 }) {
   return (
     <div className="bg-card px-3 py-2 hover:bg-muted/30">
-      <Link href={href} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_120px_110px_86px] md:items-center">
+      <Link href={href} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_150px_120px_110px_86px] md:items-center">
         <RunName
           icon={<Box className="size-4 text-primary" />}
           title={deployment.label}
           subtitle={`${deployment.strategyFamily} / ${shortWallet(deployment.deploymentKey ?? deployment.id)}`}
         />
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+          {new Date(deployment.startedAt).toLocaleString()}
+        </span>
         <PnlValue value={deployment.netPnl} />
         <span className="font-mono text-sm tabular-nums">
           {formatPercent(deployment.winRate)}
@@ -157,6 +173,40 @@ function DeploymentRow({
         </Badge>
       </Link>
     </div>
+  );
+}
+
+function DeploymentSortHeader({
+  label,
+  value,
+  filters
+}: {
+  label: string;
+  value: NonNullable<DashboardFilters["deploymentSort"]>;
+  filters: DashboardFilters;
+}) {
+  const active = (filters.deploymentSort ?? "pnl") === value;
+  const currentDirection = filters.deploymentDirection ?? "desc";
+  const nextDirection = active && currentDirection === "desc" ? "asc" : "desc";
+  const Icon = active
+    ? currentDirection === "desc"
+      ? ArrowDown
+      : ArrowUp
+    : ChevronsUpDown;
+
+  return (
+    <Button asChild variant="ghost" size="sm">
+      <Link
+        href={detailHref(filters, {
+          deploymentSort: value,
+          deploymentDirection: nextDirection
+        })}
+        aria-label={`Sort deployments by ${label} ${nextDirection === "desc" ? "descending" : "ascending"}`}
+      >
+        {label}
+        <Icon className={active ? "size-3 text-primary" : "size-3 opacity-50"} />
+      </Link>
+    </Button>
   );
 }
 

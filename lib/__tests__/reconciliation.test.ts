@@ -120,6 +120,24 @@ describe("session reconciliation", () => {
     expect(result.series[0]).toMatchObject({ ours: 0, source: 0 });
   });
 
+  it("uses execution metadata instead of a delayed analytics write time", () => {
+    const delayed = event({
+      createdAt: new Date("2026-06-26T10:08:00Z"),
+      contextJson: JSON.stringify({
+        signal_observed_at: "2026-06-26T10:00:00Z",
+        source_event_to_fill_seconds: 9.75,
+        analytics_enqueued_at: "2026-06-26T10:00:09.750Z",
+        analytics_queue_wait_seconds: 470.25,
+        target_local_shares: 10
+      })
+    });
+    const result = reconcile({ events: [delayed] });
+
+    expect(result.positions[0].entryLagSeconds).toBe(9.75);
+    expect(result.positions[0].enteredAt).toBe("2026-06-26T10:00:09.750Z");
+    expect(result.positions[0].ourFillTime).toBe("2026-06-26T10:00:09.750Z");
+  });
+
   it("marks a partial fill against the requested local size", () => {
     const result = reconcile({ events: [event({ filledShares: 4, heldAfter: 4 })] });
     expect(result.positions[0].verdict).toBe("partial");
@@ -153,7 +171,7 @@ describe("session reconciliation", () => {
       currentPositions: [],
       closedPositions: [position({ size: 0, realizedPnl: 25 })]
     });
-    expect(result.positions[0].exitLagSeconds).toBe(15);
+    expect(result.positions[0].exitLagSeconds).toBeUndefined();
     expect(result.positions[0].sourceExitPrice).toBe(0.75);
     expect(result.positions[0].ourExitPrice).toBe(0.8);
     expect(result.positions[0].exitPriceDelta).toBeCloseTo(0.05);
@@ -161,7 +179,24 @@ describe("session reconciliation", () => {
     expect(result.realizedSeries.at(-1)!.ours).toBeCloseTo(2.5);
   });
 
-  it("uses a condition-level MERGE timestamp for exit lag without inventing an exit price", () => {
+  it("computes average exit price across multiple source sells", () => {
+    const sell = event({ createdAt: new Date("2026-06-26T10:05:15Z"), side: "SELL", price: 0.8, grossCash: 8, heldAfter: 0 });
+    const result = reconcile({
+      events: [event(), sell],
+      activity: [
+        sourceActivity(),
+        sourceActivity({ timestamp: new Date("2026-06-26T10:04:00Z").getTime() / 1000, side: "SELL", price: 0.70, usdcSize: 35, transactionHash: "0x3", size: 50 }),
+        sourceActivity({ timestamp: new Date("2026-06-26T10:05:00Z").getTime() / 1000, side: "SELL", price: 0.80, usdcSize: 40, transactionHash: "0x4", size: 50 })
+      ],
+      currentPositions: [],
+      closedPositions: [position({ size: 0, realizedPnl: 25 })]
+    });
+    expect(result.positions[0].sourceExitPrice).toBeCloseTo(0.75);
+    expect(result.positions[0].exitPriceDelta).toBeCloseTo(0.05);
+    expect(result.positions[0].exitDelayPnl).toBeCloseTo(0.5);
+  });
+
+  it("reports a MERGE lifecycle offset without calling it execution lag", () => {
     const sell = event({
       createdAt: new Date("2026-06-26T10:05:15Z"),
       side: "SELL",
@@ -185,7 +220,8 @@ describe("session reconciliation", () => {
       closedPositions: [position({ size: 0 })]
     });
 
-    expect(result.positions[0].exitLagSeconds).toBe(15);
+    expect(result.positions[0].exitLagSeconds).toBeUndefined();
+    expect(result.positions[0].exitEventOffsetSeconds).toBeUndefined();
     expect(result.positions[0].sourceExitType).toBe("MERGE");
     expect(result.positions[0].sourceExitPrice).toBeUndefined();
     expect(result.positions[0].exitPriceDelta).toBeUndefined();

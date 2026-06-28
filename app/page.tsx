@@ -39,6 +39,8 @@ export default async function Home({
     pnlView: readParam(params, "pnlView") as DashboardFilters["pnlView"],
     sourceScope: readParam(params, "sourceScope") as DashboardFilters["sourceScope"],
     pnlUnit: readParam(params, "pnlUnit") as DashboardFilters["pnlUnit"],
+    deploymentSort: readParam(params, "deploymentSort") as DashboardFilters["deploymentSort"],
+    deploymentDirection: readParam(params, "deploymentDirection") as DashboardFilters["deploymentDirection"],
     sessionSort: readParam(params, "sessionSort") as DashboardFilters["sessionSort"],
     sessionDirection: readParam(params, "sessionDirection") as DashboardFilters["sessionDirection"]
   };

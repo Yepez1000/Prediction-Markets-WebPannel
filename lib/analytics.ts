@@ -1864,7 +1864,17 @@ export async function getDashboardData(
         deployment.activeContainers = deployment.containerId ? 1 : 0;
         return stripMutable(finalizeSummary(deployment)) as DeploymentSummary;
       })
-      .sort((a, b) => b.netPnl - a.netPnl);
+      .sort((a, b) => {
+        const sort = filters.deploymentSort ?? "pnl";
+        const direction = filters.deploymentDirection ?? "desc";
+        const multiplier = direction === "asc" ? 1 : -1;
+        if (sort === "date") {
+          return multiplier * (
+            new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
+          );
+        }
+        return multiplier * (a.netPnl - b.netPnl);
+      });
 
     const sessions = Array.from(sessionMap.entries())
       .map(([id, session]) => {

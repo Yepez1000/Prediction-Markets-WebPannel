@@ -3,13 +3,23 @@ import "server-only";
 import { getPrisma } from "@/lib/prisma";
 import type { SessionComparison } from "@/lib/types";
 
+let persistenceUnavailable = false;
+let missingTableWarningLogged = false;
+
+function isMissingTableError(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error
+    && (error as { code?: string }).code === "P2021";
+}
+
 export async function persistReconciliation(
   comparison: SessionComparison
 ) {
+  if (persistenceUnavailable) return undefined;
   const prisma = getPrisma();
 
-  const row = await prisma.sessionReconciliation.create({
-    data: {
+  try {
+    const row = await prisma.sessionReconciliation.create({
+      data: {
       sessionId: comparison.sessionId,
       sourceWallet: comparison.sourceWallet,
       sourceScope: comparison.sourceScope,
@@ -64,8 +74,17 @@ export async function persistReconciliation(
           }))
         }
       }
-    }
-  });
+      }
+    });
 
-  return row.id;
+    return row.id;
+  } catch (error) {
+    if (!isMissingTableError(error)) throw error;
+    persistenceUnavailable = true;
+    if (!missingTableWarningLogged) {
+      missingTableWarningLogged = true;
+      console.warn("Reconciliation persistence is disabled until its database migration is applied.");
+    }
+    return undefined;
+  }
 }

@@ -120,15 +120,21 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "pr
 function PositionTable({ positions }: { positions: PositionReconciliation[] }) {
   return (
     <div className="overflow-x-auto rounded-md border border-border">
-      <table className="w-full min-w-[1640px] text-left text-xs">
+      <table className="w-full min-w-[1800px] text-left text-xs">
         <thead className="bg-muted/30 text-[10px] uppercase tracking-wide text-muted-foreground"><tr><th className="px-3 py-2">Market / outcome</th><th className="px-2 py-2 text-right">Proportional sizing</th><th className="px-2 py-2 text-right">Entry · source → ours</th><th className="px-2 py-2 text-right">Exit · source → ours</th><th className="px-2 py-2 text-right">Source result</th><th className="px-2 py-2 text-right">Our result</th><th className="px-2 py-2 text-right">Return bridge</th><th className="px-2 py-2 text-right">Running return</th><th className="px-3 py-2">Diagnosis</th></tr></thead>
         <tbody className="divide-y divide-border/70">
           {positions.map((position) => (
             <tr key={position.key} className="bg-card hover:bg-muted/20">
-              <td className="max-w-[250px] px-3 py-2"><div className="truncate text-foreground">{position.market}</div><div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{position.outcome || "unknown"} · {position.conditionId.slice(0, 10)}…</div></td>
+              <td className="min-w-[360px] max-w-[460px] px-3 py-2 align-top">
+                <div className="whitespace-normal break-words text-foreground">{position.market}</div>
+                <div className="mt-1 break-all font-mono text-[10px] leading-relaxed text-muted-foreground">
+                  {position.outcome || "unknown"} · condition {position.conditionId}
+                </div>
+                {position.asset ? <div className="mt-0.5 break-all font-mono text-[10px] leading-relaxed text-muted-foreground">token {position.asset}</div> : null}
+              </td>
               <td className="px-2 py-2"><SizingEquation position={position} /></td>
               <td className="px-2 py-2"><PricePair source={position.sourceEntryPrice} ours={position.ourEntryPrice} delta={position.entryPriceDelta} pnl={position.entryDelayPnl} lagSeconds={position.entryLagSeconds} /></td>
-              <td className="px-2 py-2"><PricePair source={position.sourceExitPrice} ours={position.ourExitPrice} delta={position.exitPriceDelta} pnl={position.exitDelayPnl} lagSeconds={position.exitLagSeconds} lifecycleType={position.sourceExitType} /></td>
+              <td className="px-2 py-2"><PricePair source={position.sourceExitPrice} ours={position.ourExitPrice} delta={position.exitPriceDelta} pnl={position.exitDelayPnl} lagSeconds={position.exitLagSeconds} lifecycleOffsetSeconds={position.exitEventOffsetSeconds} lifecycleType={position.sourceExitType} /></td>
               <td className="px-2 py-2"><TradeResult owner="source" pnl={position.sourcePnl} capital={position.sourceBuyCapital} roi={position.sourceTradeReturnPct} contribution={position.sourceReturnContributionPct} /></td>
               <td className="px-2 py-2"><TradeResult owner="ours" pnl={position.ourPnl} capital={position.ourBuyCapital} roi={position.ourTradeReturnPct} contribution={position.ourReturnContributionPct} fees={position.ourFees} /></td>
               <td className="px-2 py-2 text-right font-mono"><SignedPercent value={position.returnGapContributionPct} suffix=" pp" /><div className="mt-0.5 text-[10px] text-muted-foreground">ours − source</div></td>
@@ -211,6 +217,7 @@ function PricePair({
   delta,
   pnl,
   lagSeconds,
+  lifecycleOffsetSeconds,
   lifecycleType
 }: {
   source?: number;
@@ -218,6 +225,7 @@ function PricePair({
   delta?: number;
   pnl?: number;
   lagSeconds?: number;
+  lifecycleOffsetSeconds?: number;
   lifecycleType?: string;
 }) {
   const sourceLabel = source === undefined
@@ -232,7 +240,9 @@ function PricePair({
           Δ {delta !== undefined && delta >= 0 ? "+" : ""}{delta?.toFixed(4)} · {pnl === undefined ? "n/a" : formatCurrency(pnl)}
         </div>
       ) : null}
-      <LagSeconds value={lagSeconds} />
+      {lifecycleType && lifecycleType !== "TRADE"
+        ? <LifecycleOffset value={lifecycleOffsetSeconds} />
+        : <LagSeconds value={lagSeconds} />}
     </div>
   );
 }
@@ -240,6 +250,11 @@ function PricePair({
 function LagSeconds({ value }: { value?: number }) {
   if (value === undefined || !Number.isFinite(value)) return null;
   return <div className="mt-0.5 text-[10px] text-muted-foreground">lag {value >= 0 ? "+" : ""}{value.toFixed(1)}s</div>;
+}
+
+function LifecycleOffset({ value }: { value?: number }) {
+  if (value === undefined || !Number.isFinite(value)) return null;
+  return <div className="mt-0.5 text-[10px] text-muted-foreground">lifecycle {value >= 0 ? "+" : ""}{value.toFixed(1)}s</div>;
 }
 
 function Verdict({ verdict }: { verdict: PositionVerdict }) {

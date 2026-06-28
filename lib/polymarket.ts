@@ -71,7 +71,7 @@ async function readJson(
     ...init,
     headers: { Accept: "application/json", ...init?.headers },
     next: { revalidate: 60 },
-    signal: AbortSignal.timeout(12_000)
+    signal: AbortSignal.timeout(120_000)
   });
   if (!response.ok) throw new Error(`Polymarket returned ${response.status}.`);
   return response.json() as Promise<unknown>;

@@ -108,6 +108,14 @@ function contextDate(event: ComparisonEvent, key: string) {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
+// `createdAt` is the analytics persistence time, which can trail the actual
+// fill by minutes when the event queue is backlogged.
+function eventDate(event: ComparisonEvent) {
+  return contextDate(event, "filled_at")
+    ?? contextDate(event, "analytics_enqueued_at")
+    ?? event.createdAt;
+}
+
 function median(values: number[]) {
   if (values.length === 0) return undefined;
   const sorted = values.slice().sort((a, b) => a - b);
@@ -115,28 +123,51 @@ function median(values: number[]) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function closestActivity(
-  rows: PolymarketActivity[],
-  timestamp: number,
-  side: "BUY" | "SELL"
-) {
-  return rows
-    .filter((row) => row.type === "TRADE" && row.side === side)
-    .sort((a, b) => Math.abs(a.timestamp - timestamp) - Math.abs(b.timestamp - timestamp))[0];
+
+function avgEntry(rows: PolymarketActivity[]) {
+  const buys = rows.filter((r) => r.type === "TRADE" && r.side === "BUY");
+  if (buys.length === 0) return undefined;
+  const totalShares = buys.reduce((s, r) => s + r.size, 0);
+  const totalCash = buys.reduce((s, r) => s + r.price * r.size, 0);
+  return totalCash / totalShares;
 }
 
-function closestSourceExit(rows: PolymarketActivity[], timestamp: number) {
-  const sell = closestActivity(rows, timestamp, "SELL");
-  if (sell) return sell;
+function avgExit(rows: PolymarketActivity[], sourcePos?: PolymarketPosition) {
+  const exits = rows.filter((r) =>
+    (r.type === "TRADE" && r.side === "SELL") || r.type === "REDEEM"
+  );
+  if (exits.length === 0) {
+    if (sourcePos?.curPrice === 0 || sourcePos?.curPrice === 1) return sourcePos.curPrice;
+    return undefined;
+  }
+  let totalCash = 0;
+  let totalShares = 0;
+  for (const r of exits) {
+    console.log("exit positions ", r)
+    if (r.type === "TRADE") {
+      totalCash += r.price * r.size;
+    } else {
+      console.log("source pos curr price", sourcePos?.curPrice)
+      console.log("source pos", sourcePos)
 
-  return rows
-    .filter((row) => row.type === "MERGE" || row.type === "REDEEM")
-    .sort((a, b) => Math.abs(a.timestamp - timestamp) - Math.abs(b.timestamp - timestamp))[0];
+      totalCash += (sourcePos?.curPrice ? 1 : 0) * r.size;
+    }
+    totalShares += r.size;
+  }
+  return totalCash / totalShares;
+}
+
+function exitType(rows: PolymarketActivity[], sourcePos?: PolymarketPosition) {
+  if (rows.some((r) => r.type === "TRADE" && r.side === "SELL")) return "TRADE";
+  if (rows.some((r) => r.type === "REDEEM")) return "REDEEM";
+  if (rows.some((r) => r.type === "MERGE")) return "MERGE";
+  if (sourcePos?.curPrice === 0 || sourcePos?.curPrice === 1) return "RESOLUTION";
+  return undefined;
 }
 
 function buildLocalPositions(events: ComparisonEvent[]) {
   const positions = new Map<string, LocalPosition>();
-  for (const event of events) {
+  for (const event of events.slice().sort((a, b) => eventDate(a).getTime() - eventDate(b).getTime())) {
     if (!event.conditionId || !event.clobTokenId) continue;
     if (!["FILLED", "PARTIAL", "RESOLVED"].includes(event.status.toUpperCase())) continue;
     const side = event.side?.toUpperCase();
@@ -274,12 +305,12 @@ function historyDivergence(local: LocalPosition, sourceRows: PolymarketActivity[
       delta: row.side === "BUY" ? row.size : -row.size
     })),
     ...(local.entry ? [{
-      at: Math.floor(local.entry.createdAt.getTime() / 1000),
+      at: Math.floor(eventDate(local.entry).getTime() / 1000),
       owner: "local" as const,
       delta: local.filled
     }] : []),
     ...(local.exit ? [{
-      at: Math.floor(local.exit.createdAt.getTime() / 1000),
+      at: Math.floor(eventDate(local.exit).getTime() / 1000),
       owner: "local" as const,
       delta: -(local.filled - local.current)
     }] : [])
@@ -314,7 +345,7 @@ function toPortfolioFills(events: ComparisonEvent[]): PortfolioFill[] {
     const shares = number(event.filledShares);
     if (shares <= 0) return [];
     return [{
-      timestamp: Math.floor(event.createdAt.getTime() / 1000),
+      timestamp: Math.floor(eventDate(event).getTime() / 1000),
       conditionId: event.conditionId,
       asset: event.clobTokenId,
       side,
@@ -469,12 +500,11 @@ export function reconcileSession(input: {
     const sourceRows = sourceRowsFor(input.activity, position.conditionId, position.asset, position.outcome);
     const current = findPosition(input.currentPositions, position.conditionId, position.asset, position.outcome);
     const closed = findPosition(input.closedPositions, position.conditionId, position.asset, position.outcome);
-    const entryAt = position.entry
-      ? Math.floor((contextDate(position.entry, "signal_observed_at") ?? position.entry.createdAt).getTime() / 1000)
-      : undefined;
-    const exitAt = position.exit ? Math.floor(position.exit.createdAt.getTime() / 1000) : undefined;
-    const sourceEntry = entryAt === undefined ? undefined : closestActivity(sourceRows, entryAt, "BUY");
-    const sourceExit = exitAt === undefined ? undefined : closestSourceExit(sourceRows, exitAt);
+    const sourceEntryPrice = avgEntry(sourceRows);
+    console.log("curretn", current, " close", closed)
+    const sourcePos = current ?? closed;
+    const sourceExitPrice = avgExit(sourceRows, sourcePos);
+    const sourceExitType = exitType(sourceRows, sourcePos);
     const expected = position.expected || position.requested;
     const fillPercent = position.requested > 0 ? position.filled / position.requested * 100 : undefined;
     const sourceCashPnl = current?.cashPnl;
@@ -493,17 +523,13 @@ export function reconcileSession(input: {
     } else if (expected > 0 && position.current > expected * 1.01) {
       verdict = "overfilled";
     }
-    const entryLagSeconds = sourceEntry && position.entry
-      ? position.entry.createdAt.getTime() / 1000 - sourceEntry.timestamp
-      : position.entry
-        ? contextNumber(position.entry, "signal_to_order_seconds")
-        : undefined;
-    const exitLagSeconds = sourceExit && position.exit
-      ? position.exit.createdAt.getTime() / 1000 - sourceExit.timestamp
+    const directEntryLag = position.entry
+      ? contextNumber(position.entry, "source_event_to_fill_seconds")
+      ?? contextNumber(position.entry, "signal_to_order_seconds")
       : undefined;
+    const entryLagSeconds = directEntryLag;
     const ourCostBasis = position.costBasis > 0 ? position.costBasis : position.buyCost;
     const ourReturnPct = ourCostBasis > 0 ? (position.realizedPnl / ourCostBasis) * 100 : undefined;
-    const sourcePos = current ?? closed;
     const sourceCostBasis = sourcePos?.avgPrice && sourcePos.avgPrice > 0
       ? sourcePos.avgPrice * sourcePos.size : 0;
     const sourceReturnPct = sourceCostBasis > 0 && sourcePnl !== undefined
@@ -524,10 +550,7 @@ export function reconcileSession(input: {
       ? sourceSignalShares * input.portfolioSizingPct : undefined;
     const sizingErrorPct = expected > 0
       ? Math.abs(expected - position.filled) / expected * 100 : undefined;
-    const sourceEntryPrice = sourceEntry?.price;
     const ourEntryPrice = position.entry?.price ?? undefined;
-    // MERGE/REDEEM rows are condition-level lifecycle events, not quoted executions.
-    const sourceExitPrice = sourceExit?.type === "TRADE" ? sourceExit.price : undefined;
     const ourExitPrice = position.exit?.price ?? undefined;
     const entryPriceDelta = sourceEntryPrice !== undefined && ourEntryPrice !== undefined
       ? ourEntryPrice - sourceEntryPrice : undefined;
@@ -546,7 +569,7 @@ export function reconcileSession(input: {
     const sourceSeenAt = sourceRows.length > 0
       ? sourceRows[0].timestamp : undefined;
     const sourcePositionValue = current?.currentValue ?? closed?.currentValue;
-    const ourFillTime = position.entry?.createdAt.toISOString();
+    const ourFillTime = position.entry ? eventDate(position.entry).toISOString() : undefined;
     positions.push({
       key: position.key,
       conditionId: position.conditionId,
@@ -564,15 +587,14 @@ export function reconcileSession(input: {
       proportionalTargetShares,
       ourBoughtShares: position.filled,
       ourPeakShares: position.peakShares,
-      enteredAt: position.entry?.createdAt.toISOString(),
+      enteredAt: position.entry ? eventDate(position.entry).toISOString() : undefined,
       fillPercent,
       entryLagSeconds,
-      exitLagSeconds,
       sourceEntryPrice,
       ourEntryPrice,
       sourceExitPrice,
       ourExitPrice,
-      sourceExitType: sourceExit?.type,
+      sourceExitType,
       entryPriceDelta,
       exitPriceDelta,
       entryDelayPnl,
@@ -594,7 +616,6 @@ export function reconcileSession(input: {
       targetShares: expected,
       ourTargetPct,
       entryLagMs: entryLagSeconds !== undefined ? entryLagSeconds * 1000 : undefined,
-      exitLagMs: exitLagSeconds !== undefined ? exitLagSeconds * 1000 : undefined,
       ourReturnPct,
       sourceCashPnl,
       sourceRealizedPnl,
