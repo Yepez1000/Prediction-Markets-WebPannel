@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import { reconcileSession, type ComparisonEvent } from "@/lib/reconciliation";
-import type { PolymarketActivity, PolymarketPosition } from "@/lib/polymarket";
+import type { PolymarketActivity, PolymarketMarketResolution, PolymarketPosition } from "@/lib/polymarket";
 
 const wallet = "0x927f7694de44d19a72bce76254e628d1c141d215";
 const conditionId = "0x70514533210407ffc139eda8b0b459ef19a22f638322f1ee759c731d58a6aac8";
@@ -69,6 +69,21 @@ function position(overrides: Partial<PolymarketPosition> = {}): PolymarketPositi
     slug: "btc",
     outcome: "Up",
     outcomeIndex: 0,
+    ...overrides
+  };
+}
+
+function resolution(overrides: Partial<PolymarketMarketResolution> = {}): PolymarketMarketResolution {
+  return {
+    conditionId,
+    question: "Bitcoin up or down",
+    closed: true,
+    active: false,
+    archived: false,
+    tokens: [
+      { tokenId: asset, outcome: "Up", price: 1, winner: true },
+      { tokenId: "other", outcome: "Down", price: 0, winner: false }
+    ],
     ...overrides
   };
 }
@@ -177,6 +192,18 @@ describe("session reconciliation", () => {
     expect(result.positions[0].exitPriceDelta).toBeCloseTo(0.05);
     expect(result.positions[0].exitDelayPnl).toBeCloseTo(0.5);
     expect(result.realizedSeries.at(-1)!.ours).toBeCloseTo(2.5);
+  });
+
+  it("uses market resolution when source positions are unavailable", () => {
+    const result = reconcile({
+      activity: [sourceActivity()],
+      currentPositions: [],
+      closedPositions: [],
+      resolutions: new Map([[conditionId, resolution()]])
+    });
+
+    expect(result.positions[0].sourceExitPrice).toBe(1);
+    expect(result.positions[0].sourceExitType).toBe("RESOLUTION");
   });
 
   it("computes average exit price across multiple source sells", () => {

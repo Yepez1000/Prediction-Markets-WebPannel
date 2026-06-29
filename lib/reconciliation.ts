@@ -5,8 +5,10 @@ import {
   getBatchPriceHistory,
   getClosedPositions,
   getCurrentPositions,
+  getMarketResolution,
   getNativePnl,
   getWalletActivity,
+  type PolymarketMarketResolution,
   type PolymarketActivity,
   type PolymarketPnlPoint,
   type PolymarketPosition,
@@ -72,6 +74,8 @@ type PortfolioFill = {
   price: number;
 };
 
+type MarketResolutionMap = Map<string, PolymarketMarketResolution | undefined>;
+
 function number(value: number | null | undefined) {
   return value && Number.isFinite(value) ? value : 0;
 }
@@ -132,35 +136,67 @@ function avgEntry(rows: PolymarketActivity[]) {
   return totalCash / totalShares;
 }
 
-function avgExit(rows: PolymarketActivity[], sourcePos?: PolymarketPosition) {
+function resolvedPayoutPrice(
+  resolution: PolymarketMarketResolution | undefined,
+  asset: string,
+  outcome: string,
+  sourcePos?: PolymarketPosition
+) {
+  return resolutionPrice(resolution, asset, outcome)
+    ?? (sourcePos?.curPrice === 0 || sourcePos?.curPrice === 1 ? sourcePos.curPrice : undefined);
+}
+
+function avgExit(
+  rows: PolymarketActivity[],
+  resolution?: PolymarketMarketResolution,
+  asset = "",
+  outcome = "",
+  sourcePos?: PolymarketPosition
+) {
   const exits = rows.filter((r) =>
     (r.type === "TRADE" && r.side === "SELL") || r.type === "REDEEM"
   );
   if (exits.length === 0) {
-    if (sourcePos?.curPrice === 0 || sourcePos?.curPrice === 1) return sourcePos.curPrice;
     return undefined;
   }
   let totalCash = 0;
   let totalShares = 0;
   for (const r of exits) {
-    console.log("exit positions ", r)
     if (r.type === "TRADE") {
       totalCash += r.price * r.size;
     } else {
-      console.log("source pos curr price", sourcePos?.curPrice)
-      console.log("source pos", sourcePos)
-
-      totalCash += (sourcePos?.curPrice ? 1 : 0) * r.size;
+      const payout = resolvedPayoutPrice(resolution, asset, outcome, sourcePos);
+      if (payout === undefined) return undefined;
+      totalCash += payout * r.size;
     }
     totalShares += r.size;
   }
   return totalCash / totalShares;
 }
 
-function exitType(rows: PolymarketActivity[], sourcePos?: PolymarketPosition) {
+function resolutionToken(
+  resolution: PolymarketMarketResolution | undefined,
+  asset: string,
+  outcome: string
+) {
+  if (!resolution?.closed) return undefined;
+  return resolution.tokens.find((token) => token.tokenId === asset)
+    ?? resolution.tokens.find((token) => normalizeOutcome(token.outcome) === normalizeOutcome(outcome));
+}
+
+function resolutionPrice(
+  resolution: PolymarketMarketResolution | undefined,
+  asset: string,
+  outcome: string
+) {
+  return resolutionToken(resolution, asset, outcome)?.price;
+}
+
+function exitType(rows: PolymarketActivity[], sourcePos?: PolymarketPosition, resolution?: PolymarketMarketResolution, asset = "", outcome = "") {
   if (rows.some((r) => r.type === "TRADE" && r.side === "SELL")) return "TRADE";
   if (rows.some((r) => r.type === "REDEEM")) return "REDEEM";
   if (rows.some((r) => r.type === "MERGE")) return "MERGE";
+  if (resolutionToken(resolution, asset, outcome)) return "RESOLUTION";
   if (sourcePos?.curPrice === 0 || sourcePos?.curPrice === 1) return "RESOLUTION";
   return undefined;
 }
@@ -483,6 +519,7 @@ export function reconcileSession(input: {
   sessionBankroll?: number;
   portfolioSizingPct?: number;
   allSourcePositions?: PolymarketPosition[];
+  resolutions?: MarketResolutionMap;
   truncated?: boolean;
   warnings?: string[];
 }): SessionComparison {
@@ -501,10 +538,12 @@ export function reconcileSession(input: {
     const current = findPosition(input.currentPositions, position.conditionId, position.asset, position.outcome);
     const closed = findPosition(input.closedPositions, position.conditionId, position.asset, position.outcome);
     const sourceEntryPrice = avgEntry(sourceRows);
-    console.log("curretn", current, " close", closed)
     const sourcePos = current ?? closed;
-    const sourceExitPrice = avgExit(sourceRows, sourcePos);
-    const sourceExitType = exitType(sourceRows, sourcePos);
+    const resolution = input.resolutions?.get(position.conditionId);
+    const sourceExitPrice = avgExit(sourceRows, resolution, position.asset, position.outcome, sourcePos)
+      ?? resolutionPrice(resolution, position.asset, position.outcome)
+      ?? (sourcePos?.curPrice === 0 || sourcePos?.curPrice === 1 ? sourcePos.curPrice : undefined);
+    const sourceExitType = exitType(sourceRows, sourcePos, resolution, position.asset, position.outcome);
     const expected = position.expected || position.requested;
     const fillPercent = position.requested > 0 ? position.filled / position.requested * 100 : undefined;
     const sourceCashPnl = current?.cashPnl;
@@ -806,7 +845,7 @@ export async function getSessionComparison(
   if (!session?.sourceWallet) return undefined;
   const endedAt = session.endedAt ?? session.lastEventAt ?? new Date();
   const sourceScope = filters.sourceScope === "wallet" ? "wallet" : "matched";
-  const unit = filters.pnlUnit === "percent" ? "percent" : "usd";
+  const unit = filters.pnlUnit === "usd" ? "usd" : "percent";
   const sessionBankroll = session.initialBankroll ?? undefined;
   const sizingSnapshot = parseContext(session.sizingSnapshotJson);
   const portfolioSizingPct = typeof sizingSnapshot.computed_pct === "number"
@@ -847,12 +886,14 @@ export async function getSessionComparison(
   const fidelityMinutes = Math.max(5, Math.ceil((end - start) / 240 / 60));
 
   try {
-    const [activity, current, closed, nativePnl, prices] = await Promise.all([
+    const [activity, current, closed, nativePnl, prices, resolutions] = await Promise.all([
       getWalletActivity({ user: session.sourceWallet, start, end, conditionIds }),
       getCurrentPositions(session.sourceWallet),
       getClosedPositions(session.sourceWallet),
       getNativePnl(session.sourceWallet, "all").catch(() => []),
-      getBatchPriceHistory({ assets, start, end, fidelityMinutes }).catch(() => new Map())
+      getBatchPriceHistory({ assets, start, end, fidelityMinutes }).catch(() => new Map()),
+      Promise.all(conditionIds.map(async (conditionId) => [conditionId, await getMarketResolution(conditionId).catch(() => undefined)] as const))
+        .then((entries) => new Map(entries))
     ]);
     const result = reconcileSession({
       sessionId,
@@ -870,6 +911,7 @@ export async function getSessionComparison(
       sessionBankroll,
       portfolioSizingPct,
       allSourcePositions: [...current.rows, ...closed.rows],
+      resolutions,
       truncated: activity.truncated || current.truncated || closed.truncated,
       warnings: prices.size === 0 ? ["Historical prices were unavailable; fill prices are used as fallback marks."] : []
     });

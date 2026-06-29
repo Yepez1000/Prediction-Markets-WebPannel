@@ -44,6 +44,21 @@ export type PolymarketPosition = {
 
 export type PolymarketPnlPoint = { t: number; p: number };
 export type PolymarketPricePoint = { t: number; p: number };
+export type PolymarketMarketResolutionToken = {
+  tokenId: string;
+  outcome: string;
+  price: number;
+  winner: boolean;
+};
+
+export type PolymarketMarketResolution = {
+  conditionId: string;
+  question: string;
+  closed: boolean;
+  active: boolean;
+  archived: boolean;
+  tokens: PolymarketMarketResolutionToken[];
+};
 
 type PaginatedResult<T> = { rows: T[]; truncated: boolean };
 
@@ -265,4 +280,33 @@ export async function getBatchPriceHistory(input: {
     }
   }));
   return history;
+}
+
+export async function getMarketResolution(conditionId: string): Promise<PolymarketMarketResolution | undefined> {
+  if (!validCondition(conditionId)) throw new Error("Invalid condition id.");
+  const value = await readJson(`${CLOB_API}/markets/${conditionId}`);
+  if (!value || typeof value !== "object") return undefined;
+
+  const row = value as Record<string, unknown>;
+  const tokens = Array.isArray(row.tokens)
+    ? row.tokens.flatMap((token) => {
+        if (!token || typeof token !== "object") return [];
+        const record = token as Record<string, unknown>;
+        const tokenId = text(record.token_id ?? record.tokenId);
+        const outcome = text(record.outcome);
+        const price = finite(record.price, Number.NaN);
+        const winner = record.winner === true;
+        if (!tokenId || !outcome || !Number.isFinite(price)) return [];
+        return [{ tokenId, outcome, price, winner }];
+      })
+    : [];
+
+  return {
+    conditionId: text(row.condition_id ?? row.conditionId) || conditionId,
+    question: text(row.question),
+    closed: row.closed === true,
+    active: row.active === true,
+    archived: row.archived === true,
+    tokens
+  };
 }

@@ -106,7 +106,7 @@ export async function SessionComparison({
 }
 
 function Toggle({ filters, field, value, label }: { filters: DashboardFilters; field: "pnlView" | "sourceScope" | "pnlUnit"; value: string; label: string }) {
-  const defaults = { pnlView: "mark", sourceScope: "matched", pnlUnit: "usd" };
+  const defaults = { pnlView: "mark", sourceScope: "matched", pnlUnit: "percent" };
   const active = (filters[field] ?? defaults[field]) === value;
   const params = new URLSearchParams();
   for (const [key, current] of Object.entries({ ...filters, [field]: value })) if (current && current !== "all") params.set(key, current);

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { getWalletActivity } from "@/lib/polymarket";
+import { getMarketResolution, getWalletActivity } from "@/lib/polymarket";
 
 const wallet = "0x927f7694de44d19a72bce76254e628d1c141d215";
 const conditionId = "0x70514533210407ffc139eda8b0b459ef19a22f638322f1ee759c731d58a6aac8";
@@ -50,5 +50,41 @@ describe("Polymarket activity client", () => {
     await expect(getWalletActivity({ user: "bad", start: 0, end: 1, conditionIds: [conditionId] }))
       .rejects.toThrow("Invalid source wallet");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("parses market resolution tokens from the CLOB endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        condition_id: conditionId,
+        question: "Market",
+        closed: true,
+        active: false,
+        archived: false,
+        tokens: [
+          { token_id: "111", outcome: "Yes", price: 1, winner: true },
+          { token_id: "222", outcome: "No", price: 0, winner: false }
+        ]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getMarketResolution(conditionId);
+
+    expect(result).toEqual({
+      conditionId,
+      question: "Market",
+      closed: true,
+      active: false,
+      archived: false,
+      tokens: [
+        { tokenId: "111", outcome: "Yes", price: 1, winner: true },
+        { tokenId: "222", outcome: "No", price: 0, winner: false }
+      ]
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/markets/${conditionId}`),
+      expect.objectContaining({ headers: expect.objectContaining({ Accept: "application/json" }) })
+    );
   });
 });
