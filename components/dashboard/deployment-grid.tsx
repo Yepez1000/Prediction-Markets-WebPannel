@@ -25,6 +25,7 @@ import type {
   SessionSummary
 } from "@/lib/types";
 import { formatCurrency, formatPercent, shortWallet } from "@/lib/utils";
+import { PnlChart } from "@/components/dashboard/pnl-chart";
 
 function detailHref(filters: DashboardFilters, next: Partial<DashboardFilters>) {
   const params = new URLSearchParams();
@@ -49,9 +50,17 @@ export function DeploymentGrid({
     filters.deployment && filters.deployment !== "all"
       ? deployments.find((deployment) => deployment.id === filters.deployment)
       : undefined;
+  const deploymentRef = selectedDeployment?.deploymentKey ?? selectedDeployment?.deploymentId ?? selectedDeployment?.id;
+  const selectedSessions = deploymentRef
+    ? sessions.filter((session) => session.deploymentKey === deploymentRef || session.deploymentId === deploymentRef)
+    : [];
 
   return (
     <div className="grid min-w-0 gap-4">
+      {selectedDeployment ? (
+        <DeploymentDetail deployment={selectedDeployment} sessions={selectedSessions} />
+      ) : null}
+
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -144,6 +153,83 @@ export function DeploymentGrid({
       </Card>
     </div>
   );
+}
+
+function DeploymentDetail({
+  deployment,
+  sessions
+}: {
+  deployment: DeploymentSummary;
+  sessions: SessionSummary[];
+}) {
+  const stats: Array<[string, string]> = [
+    ["Total PnL", formatCurrency(deployment.totalPnl)],
+    ["Realized PnL", formatCurrency(deployment.realizedPnl)],
+    ["Unrealized PnL", deployment.unrealizedPnl === undefined ? "n/a" : formatCurrency(deployment.unrealizedPnl)],
+    ["Net after fees", formatCurrency(deployment.netPnlAfterFees)],
+    ["Fees", formatCurrency(-deployment.fees)],
+    ["Win rate", formatPercent(deployment.winRate)],
+    ["Trades", deployment.trades.toString()],
+    ["Markets", deployment.markets.toString()],
+    ["Resolved markets", deployment.resolvedMarkets.toString()],
+    ["Session count", deployment.sessionCount.toString()],
+    ["Active containers", deployment.activeContainers.toString()],
+    ["Avg trade size", formatCurrency(deployment.averageTradeSize)],
+    ["Total volume", formatCurrency(deployment.totalVolume)],
+    ["Profit factor", deployment.profitFactor.toFixed(2)],
+    ["Max drawdown", formatCurrency(-deployment.maxDrawdown)],
+    ["Average slippage", deployment.averageSlippage === undefined ? "n/a" : `$${deployment.averageSlippage.toFixed(4)}`],
+    ["Signal to order", deployment.averageSignalToOrderSeconds === undefined ? "n/a" : formatDuration(deployment.averageSignalToOrderSeconds)],
+    ["Order to resolution", deployment.averageOrderToResolutionSeconds === undefined ? "n/a" : formatDuration(deployment.averageOrderToResolutionSeconds)],
+    ["Sharpe ratio", deployment.sharpeRatio.toFixed(2)],
+    ["Best trade", formatCurrency(deployment.bestTrade)],
+    ["Worst trade", formatCurrency(deployment.worstTrade)],
+    ["Last trade", deployment.lastTradeAt ? new Date(deployment.lastTradeAt).toLocaleString() : "n/a"]
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="font-mono text-base">{deployment.label}</CardTitle>
+            <CardDescription className="mt-1">
+              Deployment {shortWallet(deployment.deploymentKey ?? deployment.deploymentId ?? deployment.id)} · {deployment.strategyFamily} / {deployment.mode}
+              {deployment.containerId ? <span className="text-muted-foreground"> · container {shortWallet(deployment.containerId)}</span> : null}
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <span className="rounded-full border border-border bg-muted/30 px-2 py-1">{sessions.length} sessions visible</span>
+            <span className="rounded-full border border-border bg-muted/30 px-2 py-1">{deployment.status}</span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <PnlChart points={deployment.pnlSeries} />
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {stats.map(([label, value]) => (
+            <DetailStat key={label} label={label} value={value} />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DetailStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 font-mono text-sm tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function formatDuration(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "n/a";
+  if (seconds < 60) return `${seconds.toFixed(0)}s`;
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
+  return `${(seconds / 3600).toFixed(1)}h`;
 }
 
 function DeploymentRow({
