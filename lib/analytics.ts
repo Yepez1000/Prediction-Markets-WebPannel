@@ -1576,7 +1576,9 @@ export async function getDashboardData(
   const mode = selectedMode(filters);
   const selectedSessionId =
     filters.session && filters.session !== "all" ? filters.session : undefined;
-  const selectedEventsPromise: Promise<EventLite[]> = selectedSessionId
+  const selectedDeploymentKey =
+    filters.deployment && filters.deployment !== "all" ? filters.deployment : undefined;
+  const selectedEventsPromise: Promise<EventLite[]> = selectedSessionId || selectedDeploymentKey
     ? prisma.tradeAnalyticsEvent.findMany({
         where: eventWhere(filters),
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -1613,7 +1615,23 @@ export async function getDashboardData(
           sourcePositionSize: true,
           contextJson: true
         }
-      }) as Promise<EventLite[]>
+      })
+        .then((events) => {
+          console.info("[dashboard-events] loaded", {
+            selectedSessionId,
+            selectedDeploymentKey,
+            count: events.length
+          });
+          return events as EventLite[];
+        })
+        .catch((error) => {
+          console.error("[dashboard-events] load failed", {
+            selectedSessionId,
+            selectedDeploymentKey,
+            message: error instanceof Error ? error.message : String(error)
+          });
+          return [];
+        })
     : Promise.resolve([]);
   const overviewMetricsPromise: Promise<OverviewMetricRow[]> = selectedSessionId
     ? Promise.resolve([])
@@ -1701,12 +1719,20 @@ export async function getDashboardData(
     ] as string[]);
     const eventReadStartedAt = performance.now();
     let summaryEvents: EventLite[];
-    if (selectedSessionId) {
+    if (selectedSessionId || selectedDeploymentKey) {
       summaryEvents = await selectedEventsPromise;
     } else {
       summaryEvents = [];
     }
     const eventReadMs = performance.now() - eventReadStartedAt;
+    if (selectedSessionId || selectedDeploymentKey) {
+      console.info("[dashboard-events] scope", {
+        selectedSessionId,
+        selectedDeploymentKey,
+        count: summaryEvents.length,
+        eventReadMs: Math.round(eventReadMs)
+      });
+    }
     const overviewMetrics = await overviewMetricsPromise;
 
     const marketIds = Array.from(
