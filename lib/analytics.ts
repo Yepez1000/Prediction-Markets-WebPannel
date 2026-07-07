@@ -1576,9 +1576,7 @@ export async function getDashboardData(
   const mode = selectedMode(filters);
   const selectedSessionId =
     filters.session && filters.session !== "all" ? filters.session : undefined;
-  const selectedDeploymentKey =
-    filters.deployment && filters.deployment !== "all" ? filters.deployment : undefined;
-  const selectedEventsPromise: Promise<EventLite[]> = selectedSessionId || selectedDeploymentKey
+  const selectedEventsPromise: Promise<EventLite[]> = selectedSessionId
     ? prisma.tradeAnalyticsEvent.findMany({
         where: eventWhere(filters),
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -1617,17 +1615,12 @@ export async function getDashboardData(
         }
       })
         .then((events) => {
-          console.info("[dashboard-events] loaded", {
-            selectedSessionId,
-            selectedDeploymentKey,
-            count: events.length
-          });
+          console.info("[dashboard-events] session loaded", { selectedSessionId, count: events.length });
           return events as EventLite[];
         })
         .catch((error) => {
-          console.error("[dashboard-events] load failed", {
+          console.error("[dashboard-events] session load failed", {
             selectedSessionId,
-            selectedDeploymentKey,
             message: error instanceof Error ? error.message : String(error)
           });
           return [];
@@ -1719,16 +1712,15 @@ export async function getDashboardData(
     ] as string[]);
     const eventReadStartedAt = performance.now();
     let summaryEvents: EventLite[];
-    if (selectedSessionId || selectedDeploymentKey) {
+    if (selectedSessionId) {
       summaryEvents = await selectedEventsPromise;
     } else {
       summaryEvents = [];
     }
     const eventReadMs = performance.now() - eventReadStartedAt;
-    if (selectedSessionId || selectedDeploymentKey) {
+    if (selectedSessionId) {
       console.info("[dashboard-events] scope", {
         selectedSessionId,
-        selectedDeploymentKey,
         count: summaryEvents.length,
         eventReadMs: Math.round(eventReadMs)
       });

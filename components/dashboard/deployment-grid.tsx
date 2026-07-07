@@ -26,6 +26,7 @@ import type {
 } from "@/lib/types";
 import { formatCurrency, formatPercent, shortWallet } from "@/lib/utils";
 import { PnlChart } from "@/components/dashboard/pnl-chart";
+import type { PnlPoint } from "@/lib/types";
 
 function detailHref(filters: DashboardFilters, next: Partial<DashboardFilters>) {
   const params = new URLSearchParams();
@@ -162,6 +163,8 @@ function DeploymentDetail({
   deployment: DeploymentSummary;
   sessions: SessionSummary[];
 }) {
+  const pnlSeries = combineSessionSeries(sessions);
+  const chartStats = summarizeSeries(pnlSeries, sessions.flatMap((session) => session.pnlSeries.map((point) => point.delta)));
   const stats: Array<[string, string]> = [
     ["Total PnL", formatCurrency(deployment.totalPnl)],
     ["Realized PnL", formatCurrency(deployment.realizedPnl)],
@@ -169,21 +172,21 @@ function DeploymentDetail({
     ["Net after fees", formatCurrency(deployment.netPnlAfterFees)],
     ["Fees", formatCurrency(-deployment.fees)],
     ["Win rate", formatPercent(deployment.winRate)],
-    ["Trades", deployment.trades.toString()],
+    ["Trades", (chartStats.tradeCount || deployment.trades).toString()],
     ["Markets", deployment.markets.toString()],
     ["Resolved markets", deployment.resolvedMarkets.toString()],
     ["Session count", deployment.sessionCount.toString()],
     ["Active containers", deployment.activeContainers.toString()],
     ["Avg trade size", formatCurrency(deployment.averageTradeSize)],
     ["Total volume", formatCurrency(deployment.totalVolume)],
-    ["Profit factor", deployment.profitFactor.toFixed(2)],
-    ["Max drawdown", formatCurrency(-deployment.maxDrawdown)],
+    ["Profit factor", chartStats.profitFactor.toFixed(2)],
+    ["Max drawdown", formatCurrency(-chartStats.maxDrawdown)],
     ["Average slippage", deployment.averageSlippage === undefined ? "n/a" : `$${deployment.averageSlippage.toFixed(4)}`],
     ["Signal to order", deployment.averageSignalToOrderSeconds === undefined ? "n/a" : formatDuration(deployment.averageSignalToOrderSeconds)],
     ["Order to resolution", deployment.averageOrderToResolutionSeconds === undefined ? "n/a" : formatDuration(deployment.averageOrderToResolutionSeconds)],
-    ["Sharpe ratio", deployment.sharpeRatio.toFixed(2)],
-    ["Best trade", formatCurrency(deployment.bestTrade)],
-    ["Worst trade", formatCurrency(deployment.worstTrade)],
+    ["Sharpe ratio", chartStats.sharpeRatio.toFixed(2)],
+    ["Best trade", formatCurrency(chartStats.bestTrade)],
+    ["Worst trade", formatCurrency(chartStats.worstTrade)],
     ["Last trade", deployment.lastTradeAt ? new Date(deployment.lastTradeAt).toLocaleString() : "n/a"]
   ];
 
@@ -205,7 +208,7 @@ function DeploymentDetail({
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <PnlChart points={deployment.pnlSeries} />
+        <PnlChart points={pnlSeries.length > 0 ? pnlSeries : deployment.pnlSeries} />
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {stats.map(([label, value]) => (
             <DetailStat key={label} label={label} value={value} />
@@ -230,6 +233,51 @@ function formatDuration(seconds: number) {
   if (seconds < 60) return `${seconds.toFixed(0)}s`;
   if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
   return `${(seconds / 3600).toFixed(1)}h`;
+}
+
+function combineSessionSeries(sessions: SessionSummary[]): PnlPoint[] {
+  const deltas = new Map<string, number>();
+  for (const session of sessions) {
+    for (const point of session.pnlSeries) {
+      deltas.set(point.when, (deltas.get(point.when) ?? 0) + point.delta);
+    }
+  }
+  let value = 0;
+  return Array.from(deltas.entries())
+    .sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
+    .map(([when, delta]) => {
+      value += delta;
+      return { when, value, delta };
+    });
+}
+
+function summarizeSeries(points: PnlPoint[], deltas: number[]) {
+  let peak = 0;
+  let maxDrawdown = 0;
+  for (const point of points) {
+    peak = Math.max(peak, point.value);
+    maxDrawdown = Math.max(maxDrawdown, peak - point.value);
+  }
+  const positive = deltas.filter((value) => value > 0);
+  const negative = deltas.filter((value) => value < 0);
+  const grossPositive = positive.reduce((sum, value) => sum + value, 0);
+  const grossNegative = negative.reduce((sum, value) => sum + Math.abs(value), 0);
+  return {
+    tradeCount: deltas.length,
+    bestTrade: deltas.length > 0 ? Math.max(...deltas) : 0,
+    worstTrade: deltas.length > 0 ? Math.min(...deltas) : 0,
+    maxDrawdown,
+    profitFactor: grossNegative === 0 ? grossPositive : grossPositive / grossNegative,
+    sharpeRatio: sharpeRatio(deltas)
+  };
+}
+
+function sharpeRatio(values: number[]) {
+  if (values.length < 2) return 0;
+  const mean = values.reduce((total, value) => total + value, 0) / values.length;
+  const variance = values.reduce((total, value) => total + (value - mean) ** 2, 0) / values.length;
+  const stdev = Math.sqrt(variance);
+  return stdev === 0 ? 0 : (mean / stdev) * Math.sqrt(values.length);
 }
 
 function DeploymentRow({
