@@ -428,11 +428,21 @@ function toPortfolioFills(events: ComparisonEvent[]): PortfolioFill[] {
   });
 }
 
-function sourcePortfolioFills(activity: PolymarketActivity[], conditionIds: Set<string>): PortfolioFill[] {
-  return activity.flatMap((row) => {
-    if (row.isCombo || !conditionIds.has(row.conditionId) || !row.asset) return [];
-    if (row.type === "TRADE" && (row.side === "BUY" || row.side === "SELL")) {
-      return [{
+function sourcePortfolioFills(
+  activity: PolymarketActivity[],
+  conditionIds: Set<string>,
+  resolutions?: MarketResolutionMap,
+  end?: number
+): PortfolioFill[] {
+  const fills: PortfolioFill[] = [];
+  const open = new Map<string, { conditionId: string; asset: string; outcome: string; shares: number }>();
+  const ordered = activity
+    .filter((row) => !row.isCombo && conditionIds.has(row.conditionId))
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  for (const row of ordered) {
+    if (row.type === "TRADE" && (row.side === "BUY" || row.side === "SELL") && row.asset) {
+      fills.push({
         timestamp: row.timestamp,
         conditionId: row.conditionId,
         asset: row.asset,
@@ -441,10 +451,79 @@ function sourcePortfolioFills(activity: PolymarketActivity[], conditionIds: Set<
         cash: row.usdcSize || row.size * row.price,
         fee: 0,
         price: row.price
-      }];
+      });
+      const state = open.get(row.asset) ?? {
+        conditionId: row.conditionId,
+        asset: row.asset,
+        outcome: row.outcome,
+        shares: 0
+      };
+      state.shares = Math.max(0, state.shares + (row.side === "BUY" ? row.size : -row.size));
+      state.outcome ||= row.outcome;
+      open.set(row.asset, state);
+      continue;
     }
-    return [];
-  });
+
+    if (row.type !== "REDEEM") continue;
+    if (row.asset) {
+      const state = open.get(row.asset);
+      const shares = row.size || state?.shares || 0;
+      if (shares <= 0) continue;
+      const payout = resolvedPayoutPrice(resolutions?.get(row.conditionId), row.asset, row.outcome, undefined) ?? row.price;
+      fills.push({
+        timestamp: row.timestamp,
+        conditionId: row.conditionId,
+        asset: row.asset,
+        side: "REDEEM",
+        shares,
+        cash: shares * payout,
+        fee: 0,
+        price: payout
+      });
+      if (state) {
+        state.shares = Math.max(0, state.shares - shares);
+        open.set(row.asset, state);
+      }
+      continue;
+    }
+
+    for (const state of Array.from(open.values()).filter((value) => value.conditionId === row.conditionId && value.shares > 0)) {
+      const payout = resolutionPrice(resolutions?.get(state.conditionId), state.asset, state.outcome);
+      if (payout === undefined) continue;
+      fills.push({
+        timestamp: row.timestamp,
+        conditionId: state.conditionId,
+        asset: state.asset,
+        side: "REDEEM",
+        shares: state.shares,
+        cash: state.shares * payout,
+        fee: 0,
+        price: payout
+      });
+      state.shares = 0;
+      open.set(state.asset, state);
+    }
+  }
+
+  if (end !== undefined) {
+    for (const state of open.values()) {
+      if (state.shares <= 0) continue;
+      const payout = resolutionPrice(resolutions?.get(state.conditionId), state.asset, state.outcome);
+      if (payout === undefined) continue;
+      fills.push({
+        timestamp: end,
+        conditionId: state.conditionId,
+        asset: state.asset,
+        side: "REDEEM",
+        shares: state.shares,
+        cash: state.shares * payout,
+        fee: 0,
+        price: payout
+      });
+    }
+  }
+
+  return fills;
 }
 
 function latestPrice(points: PolymarketPricePoint[] | undefined, timestamp: number, fallback: number) {
@@ -532,6 +611,14 @@ function timeline(start: number, end: number) {
   return values;
 }
 
+function realizedTimeline(start: number, end: number, fills: PortfolioFill[]) {
+  return Array.from(new Set([
+    start,
+    ...fills.flatMap((fill) => fill.timestamp >= start && fill.timestamp <= end ? [fill.timestamp] : []),
+    end
+  ])).sort((a, b) => a - b);
+}
+
 function normalizeSeries(values: number[], denominator: number, unit: "usd" | "percent") {
   if (unit === "usd") return values;
   const safe = Math.max(Math.abs(denominator), 1);
@@ -583,7 +670,7 @@ export function reconcileSession(input: {
   const start = Math.floor(input.startedAt.getTime() / 1000);
   const end = Math.floor(input.endedAt.getTime() / 1000);
   const localFills = toPortfolioFills(input.events);
-  const sourceFills = sourcePortfolioFills(input.activity, localConditionIds);
+  const sourceFills = sourcePortfolioFills(input.activity, localConditionIds, input.resolutions, end);
   const sourceGroups = sourceActivityGroups(input.activity, localConditionIds);
   const ourCapital = Array.from(local.values()).reduce((sum, position) => sum + position.buyCash, 0);
   const sourceCapital = buyCapital(sourceFills);
@@ -788,6 +875,7 @@ export function reconcileSession(input: {
   }
 
   const times = timeline(start, end);
+  const realizedTimes = realizedTimeline(start, end, [...localFills, ...sourceFills]);
   const oursRaw = portfolioSeries(localFills, input.prices, times);
   const sourceMatchedRaw = portfolioSeries(sourceFills, input.prices, times);
   const nativeInRange = input.nativePnl.filter((point) => point.t >= start && point.t <= end);
@@ -797,14 +885,14 @@ export function reconcileSession(input: {
     : sourceMatchedRaw;
   const ours = normalizeSeries(oursRaw, ourCapital, input.unit);
   const source = normalizeSeries(sourceRaw, sourceCapital || Math.abs(nativeBase), input.unit);
-  const oursRealized = normalizeSeries(realizedSeries(localFills, times), ourCapital, input.unit);
-  const sourceRealized = normalizeSeries(realizedSeries(sourceFills, times), sourceCapital, input.unit);
+  const oursRealized = normalizeSeries(realizedSeries(localFills, realizedTimes), ourCapital, input.unit);
+  const sourceRealized = normalizeSeries(realizedSeries(sourceFills, realizedTimes), sourceCapital, input.unit);
   const series: ComparisonPnlPoint[] = times.map((at, index) => ({
     when: new Date(at * 1000).toISOString(),
     ours: ours[index] ?? 0,
     source: source[index] ?? 0
   }));
-  const realizedSeriesPoints: ComparisonPnlPoint[] = times.map((at, index) => ({
+  const realizedSeriesPoints: ComparisonPnlPoint[] = realizedTimes.map((at, index) => ({
     when: new Date(at * 1000).toISOString(),
     ours: oursRealized[index] ?? 0,
     source: sourceRealized[index] ?? 0

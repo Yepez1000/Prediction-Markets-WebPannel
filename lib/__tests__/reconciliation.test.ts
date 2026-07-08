@@ -217,6 +217,36 @@ describe("session reconciliation", () => {
     expect(result.realizedSeries.at(-1)!.ours).toBeCloseTo(2.5);
   });
 
+  it("includes source redemptions and settled losses in the realized graph", () => {
+    const assetA = "asset-a";
+    const assetB = "asset-b";
+    const assetC = "asset-c";
+    const at = (value: string) => new Date(value).getTime() / 1000;
+    const result = reconcile({
+      events: [event({ clobTokenId: assetA, filledShares: 1, requestedShares: 1, grossCash: 0.01, price: 0.01, heldAfter: 1 })],
+      activity: [
+        sourceActivity({ asset: assetA, outcome: "A", timestamp: at("2026-06-26T10:00:00Z"), size: 1, usdcSize: 0.01, price: 0.01, transactionHash: "0xa-buy" }),
+        sourceActivity({ asset: assetA, outcome: "A", timestamp: at("2026-06-26T10:01:00Z"), type: "REDEEM", side: "", size: 1, usdcSize: 0, price: 1, transactionHash: "0xa-redeem" }),
+        sourceActivity({ asset: assetB, outcome: "B", timestamp: at("2026-06-26T10:02:00Z"), size: 1, usdcSize: 0.57, price: 0.57, transactionHash: "0xb-buy" }),
+        sourceActivity({ asset: assetB, outcome: "B", timestamp: at("2026-06-26T10:03:00Z"), type: "REDEEM", side: "", size: 1, usdcSize: 0, price: 1, transactionHash: "0xb-redeem" }),
+        sourceActivity({ asset: assetC, outcome: "C", timestamp: at("2026-06-26T10:04:00Z"), size: 1, usdcSize: 0.99, price: 0.99, transactionHash: "0xc-buy" }),
+        sourceActivity({ asset: assetC, outcome: "C", timestamp: at("2026-06-26T10:05:00Z"), type: "REDEEM", side: "", size: 1, usdcSize: 0, price: 0, transactionHash: "0xc-redeem" })
+      ],
+      currentPositions: [],
+      closedPositions: [],
+      resolutions: new Map([[conditionId, resolution({
+        tokens: [
+          { tokenId: assetA, outcome: "A", price: 1, winner: true },
+          { tokenId: assetB, outcome: "B", price: 1, winner: true },
+          { tokenId: assetC, outcome: "C", price: 0, winner: false }
+        ]
+      })]])
+    });
+
+    expect(result.realizedSeries.some((point) => Math.abs(point.source - 1.42) < 1e-9)).toBe(true);
+    expect(result.realizedSeries.at(-1)!.source).toBeCloseTo(0.43);
+  });
+
   it("uses reconstructed local averages and realized PnL for our row result", () => {
     const secondBuy = event({
       createdAt: new Date("2026-06-26T10:01:00Z"),
