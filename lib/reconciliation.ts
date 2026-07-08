@@ -55,7 +55,9 @@ type LocalPosition = {
   peakShares: number;
   expected: number;
   current: number;
+  buyCash: number;
   buyCost: number;
+  sellCash: number;
   sellProceeds: number;
   realizedPnl: number;
   costBasis: number;
@@ -225,7 +227,9 @@ function buildLocalPositions(events: ComparisonEvent[]) {
       peakShares: 0,
       expected: 0,
       current: 0,
+      buyCash: 0,
       buyCost: 0,
+      sellCash: 0,
       sellProceeds: 0,
       realizedPnl: 0,
       costBasis: 0,
@@ -250,6 +254,7 @@ function buildLocalPositions(events: ComparisonEvent[]) {
       position.entry ??= event;
       position.current += shares;
       position.peakShares = Math.max(position.peakShares, position.current);
+      position.buyCash += cash;
       position.buyCost += cash + fee;
       position.costBasis += cash + fee;
     } else {
@@ -260,6 +265,7 @@ function buildLocalPositions(events: ComparisonEvent[]) {
       position.soldShares += shares;
       position.current = Math.max(0, position.current - covered);
       position.costBasis = Math.max(0, position.costBasis - releasedCost);
+      position.sellCash += cash;
       position.sellProceeds += cash - fee;
       position.realizedPnl += cash - fee - releasedCost;
     }
@@ -308,7 +314,7 @@ function peakSourceShares(rows: PolymarketActivity[]) {
   let shares = 0;
   let peak = 0;
   for (const row of rows.slice().sort((a, b) => a.timestamp - b.timestamp)) {
-    if (row.type !== "TRADE") continue;
+    if (row.type !== "TRADE" || (row.side !== "BUY" && row.side !== "SELL")) continue;
     shares = Math.max(0, shares + (row.side === "BUY" ? row.size : -row.size));
     peak = Math.max(peak, shares);
   }
@@ -322,11 +328,28 @@ function buyCapital(fills: PortfolioFill[]) {
 }
 
 function localAverageBuy(position: LocalPosition) {
-  return position.filled > 0 ? position.buyCost / position.filled : undefined;
+  return position.filled > 0 ? position.buyCash / position.filled : undefined;
 }
 
 function localAverageSell(position: LocalPosition) {
-  return position.soldShares > 0 ? position.sellProceeds / position.soldShares : undefined;
+  return position.soldShares > 0 ? position.sellCash / position.soldShares : undefined;
+}
+
+function sourceActivityGroups(activity: PolymarketActivity[], conditionIds: Set<string>) {
+  const groups = new Map<string, PolymarketActivity[]>();
+  for (const row of activity) {
+    if (row.isCombo || row.type !== "TRADE" || (row.side !== "BUY" && row.side !== "SELL") || !row.asset || !conditionIds.has(row.conditionId)) continue;
+    const key = keyFor(row.conditionId, row.asset, row.outcome);
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  return groups;
+}
+
+function activityCurrentShares(rows: PolymarketActivity[]) {
+  return rows.reduce((sum, row) => {
+    if (row.type !== "TRADE" || (row.side !== "BUY" && row.side !== "SELL")) return sum;
+    return Math.max(0, sum + (row.side === "BUY" ? row.size : -row.size));
+  }, 0);
 }
 
 function attributedPnl(
@@ -404,9 +427,9 @@ function toPortfolioFills(events: ComparisonEvent[]): PortfolioFill[] {
   });
 }
 
-function sourcePortfolioFills(activity: PolymarketActivity[], assets: Set<string>): PortfolioFill[] {
+function sourcePortfolioFills(activity: PolymarketActivity[], conditionIds: Set<string>): PortfolioFill[] {
   return activity.flatMap((row) => {
-    if (row.isCombo || !assets.has(row.asset)) return [];
+    if (row.isCombo || !conditionIds.has(row.conditionId) || !row.asset) return [];
     if (row.type === "TRADE" && (row.side === "BUY" || row.side === "SELL")) {
       return [{
         timestamp: row.timestamp,
@@ -535,12 +558,13 @@ export function reconcileSession(input: {
   warnings?: string[];
 }): SessionComparison {
   const local = buildLocalPositions(input.events);
-  const localAssets = new Set(Array.from(local.values()).map((position) => position.asset));
+  const localConditionIds = new Set(Array.from(local.values()).map((position) => position.conditionId));
   const start = Math.floor(input.startedAt.getTime() / 1000);
   const end = Math.floor(input.endedAt.getTime() / 1000);
   const localFills = toPortfolioFills(input.events);
-  const sourceFills = sourcePortfolioFills(input.activity, localAssets);
-  const ourCapital = Array.from(local.values()).reduce((sum, position) => sum + position.buyCost, 0);
+  const sourceFills = sourcePortfolioFills(input.activity, localConditionIds);
+  const sourceGroups = sourceActivityGroups(input.activity, localConditionIds);
+  const ourCapital = Array.from(local.values()).reduce((sum, position) => sum + position.buyCash, 0);
   const sourceCapital = buyCapital(sourceFills);
   const positions: PositionReconciliation[] = [];
 
@@ -585,7 +609,7 @@ export function reconcileSession(input: {
     const sourceReturnPct = sourceCostBasis > 0 && sourcePnl !== undefined
       ? (sourcePnl / sourceCostBasis) * 100 : undefined;
     const positionSourceFills = sourceFills.filter((fill) => fill.asset === position.asset);
-    const ourBuyCapital = position.buyCost;
+    const ourBuyCapital = position.buyCash;
     const sourceBuyCapital = buyCapital(positionSourceFills);
     const sourceAttributedPnl = attributedPnl(positionSourceFills, input.prices, start, end);
     const ourPositionPnl = position.realizedPnl;
@@ -606,9 +630,9 @@ export function reconcileSession(input: {
     const exitPriceDelta = sourceExitPrice !== undefined && ourExitPrice !== undefined
       ? ourExitPrice - sourceExitPrice : undefined;
     const entryShares = number(position.entry?.filledShares);
-    const exitShares = number(position.exit?.filledShares);
+    const exitShares = position.soldShares;
     const entryDelayPnl = sourceEntryPrice !== undefined && ourEntryPrice !== undefined
-      ? entryShares * (sourceEntryPrice - ourEntryPrice) : undefined;
+      ? (position.filled || entryShares) * (sourceEntryPrice - ourEntryPrice) : undefined;
     const exitDelayPnl = sourceExitPrice !== undefined && ourExitPrice !== undefined
       ? exitShares * (ourExitPrice - sourceExitPrice) : undefined;
     const ourTargetPct = input.sessionBankroll && input.sessionBankroll > 0
@@ -626,7 +650,7 @@ export function reconcileSession(input: {
       market: position.market,
       outcome: position.outcome,
       ourCurrentShares: position.current,
-      sourceCurrentShares: current?.size ?? 0,
+      sourceCurrentShares: current?.size ?? activityCurrentShares(sourceRows),
       expectedShares: expected,
       requestedShares: position.requested,
       filledShares: position.filled,
@@ -684,40 +708,54 @@ export function reconcileSession(input: {
     });
   }
 
-  for (const source of [...input.currentPositions, ...input.closedPositions]) {
-    if (!input.activity.some((row) => row.conditionId === source.conditionId)) continue;
-    const key = keyFor(source.conditionId, source.asset, source.outcome);
-    if (local.has(key) || positions.some((position) => position.conditionId === source.conditionId && normalizeOutcome(position.outcome) === normalizeOutcome(source.outcome))) continue;
-    const sourcePnlOnly = source.cashPnl || source.realizedPnl;
-    const sourceCostOnly = sourceAvgPrice(source) ? source.avgPrice * source.size : 0;
-    const sourceRetOnly = sourceCostOnly > 0 ? (sourcePnlOnly / sourceCostOnly) * 100 : undefined;
+  for (const [key, rows] of sourceGroups) {
+    const first = rows.slice().sort((a, b) => a.timestamp - b.timestamp)[0];
+    if (!first) continue;
+    if (local.has(key) || positions.some((position) => position.conditionId === first.conditionId && normalizeOutcome(position.outcome) === normalizeOutcome(first.outcome))) continue;
+    const current = findPosition(input.currentPositions, first.conditionId, first.asset, first.outcome);
+    const closed = findPosition(input.closedPositions, first.conditionId, first.asset, first.outcome);
+    const sourcePos = current ?? closed;
+    const positionSourceFills = sourceFills.filter((fill) => fill.asset === first.asset);
+    const sourceBuyCapital = buyCapital(positionSourceFills);
+    const sourcePnlOnly = attributedPnl(positionSourceFills, input.prices, start, end);
+    const sourceRetOnly = sourceBuyCapital > 0 ? (sourcePnlOnly / sourceBuyCapital) * 100 : undefined;
+    const sourceReturnContributionPct = sourceCapital > 0 ? sourcePnlOnly / sourceCapital * 100 : undefined;
     positions.push({
       key: `source:${key}`,
-      conditionId: source.conditionId,
-      asset: source.asset,
-      market: source.title,
-      outcome: source.outcome,
+      conditionId: first.conditionId,
+      asset: first.asset,
+      market: first.title,
+      outcome: first.outcome,
       ourCurrentShares: 0,
-      sourceCurrentShares: source.size,
+      sourceCurrentShares: current?.size ?? activityCurrentShares(rows),
       expectedShares: 0,
       requestedShares: 0,
       filledShares: 0,
+      sourceEntryPrice: avgEntry(rows),
+      sourceExitPrice: avgExit(rows, input.resolutions?.get(first.conditionId), first.asset, first.outcome, sourcePos)
+        ?? resolutionPrice(input.resolutions?.get(first.conditionId), first.asset, first.outcome)
+        ?? (sourcePos?.curPrice === 0 || sourcePos?.curPrice === 1 ? sourcePos.curPrice : undefined),
+      sourceExitType: exitType(rows, sourcePos, input.resolutions?.get(first.conditionId), first.asset, first.outcome),
       ourBoughtShares: 0,
       ourPeakShares: 0,
       ourPnl: 0,
       sourcePnl: sourcePnlOnly,
       pnlGap: -sourcePnlOnly,
+      sourceBuyCapital,
+      sourceTradeReturnPct: sourceRetOnly,
+      sourceReturnContributionPct,
+      returnGapContributionPct: sourceReturnContributionPct !== undefined ? -sourceReturnContributionPct : undefined,
       ourTargetPct: undefined,
       entryLagMs: undefined,
       exitLagMs: undefined,
       ourReturnPct: undefined,
-      sourceCashPnl: source.cashPnl,
-      sourceRealizedPnl: source.realizedPnl,
+      sourceCashPnl: current?.cashPnl,
+      sourceRealizedPnl: closed?.realizedPnl,
       sourceReturnPct: sourceRetOnly,
       pnlGapPct: sourceRetOnly !== undefined ? -sourceRetOnly : undefined,
-      sourceSeenAt: undefined,
-      sourcePositionValue: source.currentValue,
-      sourceAvgPrice: sourceAvgPrice(source),
+      sourceSeenAt: first.timestamp,
+      sourcePositionValue: sourcePos?.currentValue,
+      sourceAvgPrice: sourceAvgPrice(sourcePos),
       ourHeldBefore: undefined,
       ourHeldAfter: undefined,
       ourFillPrice: undefined,
@@ -896,15 +934,19 @@ export async function getSessionComparison(
   const fidelityMinutes = Math.max(5, Math.ceil((end - start) / 240 / 60));
 
   try {
-    const [activity, current, closed, nativePnl, prices, resolutions] = await Promise.all([
+    const [activity, current, closed, nativePnl, resolutions] = await Promise.all([
       getWalletActivity({ user: session.sourceWallet, start, end, conditionIds }),
       getCurrentPositions(session.sourceWallet),
       getClosedPositions(session.sourceWallet),
       getNativePnl(session.sourceWallet, "all").catch(() => []),
-      getBatchPriceHistory({ assets, start, end, fidelityMinutes }).catch(() => new Map()),
       Promise.all(conditionIds.map(async (conditionId) => [conditionId, await getMarketResolution(conditionId).catch(() => undefined)] as const))
         .then((entries) => new Map(entries))
     ]);
+    const priceAssets = Array.from(new Set([
+      ...assets,
+      ...activity.rows.flatMap((row) => row.asset ? [row.asset] : [])
+    ]));
+    const prices = await getBatchPriceHistory({ assets: priceAssets, start, end, fidelityMinutes }).catch(() => new Map());
     const result = reconcileSession({
       sessionId,
       sourceWallet: session.sourceWallet,

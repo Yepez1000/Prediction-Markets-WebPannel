@@ -173,6 +173,29 @@ describe("session reconciliation", () => {
     expect(result.positions.some((row) => row.verdict === "source-only")).toBe(true);
   });
 
+  it("detects source-only positions from activity even when position endpoints omit them", () => {
+    const oppositeAsset = "999";
+    const result = reconcile({
+      activity: [
+        sourceActivity(),
+        sourceActivity({ asset: oppositeAsset, outcome: "Down", transactionHash: "0x2", size: 20, usdcSize: 8, price: 0.4 })
+      ],
+      currentPositions: [position()],
+      closedPositions: [],
+      prices: new Map([
+        [asset, [{ t: new Date("2026-06-26T10:05:00Z").getTime() / 1000, p: 0.7 }]],
+        [oppositeAsset, [{ t: new Date("2026-06-26T10:05:00Z").getTime() / 1000, p: 0.6 }]]
+      ])
+    });
+    const row = result.positions.find((position) => position.asset === oppositeAsset);
+
+    expect(row?.verdict).toBe("source-only");
+    expect(row?.sourceCurrentShares).toBe(20);
+    expect(row?.sourceBuyCapital).toBe(8);
+    expect(row?.sourcePnl).toBeCloseTo(4);
+    expect(result.summary.sourceGrossBuyCapital).toBe(58);
+  });
+
   it("keeps mark-to-market output finite when price history is missing", () => {
     const result = reconcile({ prices: new Map() });
     expect(result.series.every((point) => Number.isFinite(point.ours))).toBe(true);
@@ -228,6 +251,29 @@ describe("session reconciliation", () => {
     expect(row.ourExitPrice).toBeCloseTo(0.85);
     expect(row.ourPnl).toBeCloseTo(5);
     expect(row.ourTradeReturnPct).toBeCloseTo(41.6667);
+  });
+
+  it("keeps local average entry and exit prices gross of fees", () => {
+    const buy = event({ price: 0.5, grossCash: 5, fee: 0.2 });
+    const sell = event({
+      createdAt: new Date("2026-06-26T10:05:00Z"),
+      side: "SELL",
+      price: 0.7,
+      grossCash: 7,
+      fee: 0.3,
+      heldAfter: 0
+    });
+    const result = reconcile({
+      events: [buy, sell],
+      currentPositions: [],
+      closedPositions: [position({ size: 0 })]
+    });
+    const row = result.positions[0];
+
+    expect(row.ourEntryPrice).toBeCloseTo(0.5);
+    expect(row.ourExitPrice).toBeCloseTo(0.7);
+    expect(row.ourFees).toBeCloseTo(0.5);
+    expect(row.ourPnl).toBeCloseTo(1.5);
   });
 
   it("reconciles fractional FAK fills as local positions", () => {
