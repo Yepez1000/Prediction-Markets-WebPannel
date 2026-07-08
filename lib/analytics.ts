@@ -100,6 +100,7 @@ type MarketAccumulator = {
   buyCost: number;
   soldShares: number;
   sellProceeds: number;
+  volume: number;
   openShares: number;
   costBasis: number;
   realizedPnl: number;
@@ -642,7 +643,6 @@ function emptyDataQuality() {
 function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
   const markets = new Map<string, MarketAccumulator>();
   const pnlSeries: PnlPoint[] = [];
-  const realizedTrades: number[] = [];
   const capitalByMarket = new Map<string, number>();
   let realizedPnl = 0;
   let totalFees = 0;
@@ -689,6 +689,7 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
       buyCost: 0,
       soldShares: 0,
       sellProceeds: 0,
+      volume: 0,
       openShares: 0,
       costBasis: 0,
       realizedPnl: 0,
@@ -703,9 +704,7 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
     market.lastTradeAt = when;
     market.fillCount += 1;
     market.fees += fee;
-    totalFees += fee;
-    totalVolume += grossCash;
-    tradeCount += 1;
+    market.volume += grossCash;
 
     if (side === "BUY") {
       const cost = grossCash + fee;
@@ -731,16 +730,6 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
       market.costBasis = Math.max(0, market.costBasis - realizedCost);
       capitalByMarket.set(key, market.costBasis);
       market.realizedPnl += tradePnl;
-      realizedPnl += tradePnl;
-      realizedTrades.push(tradePnl);
-      pnlSeries.push({
-        when,
-        value: realizedPnl,
-        delta: tradePnl,
-        price: event.price ?? undefined,
-        market: event.marketTitle ?? event.marketMeta?.question,
-        action: event.eventType
-      });
       if (market.openShares <= 1e-9 || event.eventType === "market_resolution") {
         market.resolved = true;
       }
@@ -750,18 +739,31 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
   }
 
   const marketAccumulators = Array.from(markets.values());
-  const unrealizedValues = marketAccumulators
-    .filter(
-      (market) =>
-        market.openShares > 1e-9 &&
-        market.lastPrice !== undefined &&
-        market.lastPrice > 0
-    )
-    .map((market) => market.openShares * market.lastPrice! - market.costBasis);
-  const unrealizedPnl =
-    unrealizedValues.length === 0
-      ? undefined
-      : unrealizedValues.reduce((total, value) => total + value, 0);
+  const resolvedMarketAccumulators = marketAccumulators.filter((market) => market.resolved);
+  const realizedTrades = resolvedMarketAccumulators.map((market) => market.realizedPnl);
+  realizedPnl = realizedTrades.reduce((total, value) => total + value, 0);
+  totalFees = resolvedMarketAccumulators.reduce((total, market) => total + market.fees, 0);
+  totalVolume = resolvedMarketAccumulators.reduce((total, market) => total + market.volume, 0);
+  tradeCount = resolvedMarketAccumulators.reduce((total, market) => total + market.fillCount, 0);
+
+  let cumulativePnl = 0;
+  for (const market of resolvedMarketAccumulators
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(a.lastTradeAt ?? 0).getTime() - new Date(b.lastTradeAt ?? 0).getTime()
+    )) {
+    cumulativePnl += market.realizedPnl;
+    pnlSeries.push({
+      when: market.lastTradeAt ?? market.firstTradeAt ?? new Date(0).toISOString(),
+      value: cumulativePnl,
+      delta: market.realizedPnl,
+      price: market.lastPrice,
+      market: market.market,
+      action: market.openShares <= 1e-9 ? "market_closed" : "market_resolution"
+    });
+  }
+  const unrealizedPnl = undefined;
   const marketPositions = marketAccumulators.map(toMarketPositionSummary);
   const resolvedPositions = marketPositions.filter((position) => position.resolved);
   const wins = resolvedPositions.filter((position) => position.realizedPnl > 0).length;
@@ -846,17 +848,17 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
       (position) => position.openShares * position.averageBuyPrice
     ),
     pnlByMarketType: breakdown(
-      marketPositions,
+      resolvedPositions,
       (position) => position.marketType ?? "unknown",
       (position) => position.realizedPnl
     ),
     pnlByAsset: breakdown(
-      marketPositions,
+      resolvedPositions,
       (position) => position.outcome ?? position.asset ?? "Unknown",
       (position) => position.realizedPnl
     ),
     pnlByTimeOfDay: breakdown(
-      marketPositions.filter((position) => position.lastTradeAt),
+      resolvedPositions.filter((position) => position.lastTradeAt),
       (position) => {
         const hour = new Date(position.lastTradeAt!).getHours();
         return `${hour.toString().padStart(2, "0")}:00`;
@@ -864,22 +866,22 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
       (position) => position.realizedPnl
     ),
     pnlByLiquidityBucket: breakdown(
-      marketPositions,
+      resolvedPositions,
       (position) => liquidityBucket(position.liquidity),
       (position) => position.realizedPnl
     ),
     pnlBySourcePositionSize: breakdown(
-      marketPositions,
+      resolvedPositions,
       (position) => dollarBucket(position.sourcePositionSize),
       (position) => position.realizedPnl
     ),
     pnlBySignalStrength: breakdown(
-      marketPositions,
+      resolvedPositions,
       (position) => scoreBucket(position.signalStrength),
       (position) => position.realizedPnl
     ),
     pnlByConfidenceScore: breakdown(
-      marketPositions,
+      resolvedPositions,
       (position) => scoreBucket(position.confidenceScore),
       (position) => position.realizedPnl
     ),

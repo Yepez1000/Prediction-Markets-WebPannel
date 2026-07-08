@@ -7,9 +7,12 @@ import { cn, formatCurrency } from "@/lib/utils";
 
 export function PnlChart({ points }: { points: PnlPoint[] }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const chart = useMemo(() => buildChart(points), [points]);
+  const displayPoints = useMemo(() => withZeroBaseline(points), [points]);
+  const chart = useMemo(() => buildChart(displayPoints), [displayPoints]);
   const active =
-    activeIndex === null ? points.at(-1) : points[Math.min(activeIndex, points.length - 1)];
+    activeIndex === null
+      ? displayPoints.at(-1)
+      : displayPoints[Math.min(activeIndex, displayPoints.length - 1)];
 
   if (points.length === 0) {
     return (
@@ -61,7 +64,7 @@ export function PnlChart({ points }: { points: PnlPoint[] }) {
         onPointerMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-          setActiveIndex(Math.round(ratio * (points.length - 1)));
+          setActiveIndex(Math.round(ratio * (displayPoints.length - 1)));
         }}
         onPointerLeave={() => setActiveIndex(null)}
       >
@@ -115,6 +118,20 @@ export function PnlChart({ points }: { points: PnlPoint[] }) {
       </svg>
     </div>
   );
+}
+
+function withZeroBaseline(points: PnlPoint[]) {
+  const first = points[0];
+  if (!first || first.value === 0) return points;
+  return [
+    {
+      when: first.when,
+      value: 0,
+      delta: 0,
+      action: "baseline"
+    },
+    ...points
+  ];
 }
 
 function buildChart(points: PnlPoint[]) {
