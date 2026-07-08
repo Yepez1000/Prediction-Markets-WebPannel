@@ -97,8 +97,10 @@ type MarketAccumulator = {
   signalStrength?: number;
   confidenceScore?: number;
   boughtShares: number;
+  buyCash: number;
   buyCost: number;
   soldShares: number;
+  sellCash: number;
   sellProceeds: number;
   volume: number;
   openShares: number;
@@ -686,8 +688,10 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
       signalStrength: optionalNumber(event.context.signal_strength),
       confidenceScore: optionalNumber(event.context.confidence_score),
       boughtShares: 0,
+      buyCash: 0,
       buyCost: 0,
       soldShares: 0,
+      sellCash: 0,
       sellProceeds: 0,
       volume: 0,
       openShares: 0,
@@ -709,6 +713,7 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
     if (side === "BUY") {
       const cost = grossCash + fee;
       market.boughtShares += shares;
+      market.buyCash += grossCash;
       market.buyCost += cost;
       market.openShares += shares;
       market.costBasis += cost;
@@ -725,6 +730,7 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
       const tradePnl = proceeds - realizedCost;
 
       market.soldShares += shares;
+      market.sellCash += grossCash;
       market.sellProceeds += proceeds;
       market.openShares = Math.max(0, market.openShares - sharesWithBasis);
       market.costBasis = Math.max(0, market.costBasis - realizedCost);
@@ -914,11 +920,11 @@ function toMarketPositionSummary(market: MarketAccumulator): MarketPositionSumma
     boughtShares: market.boughtShares,
     buyCost: market.buyCost,
     averageBuyPrice:
-      market.boughtShares === 0 ? 0 : market.buyCost / market.boughtShares,
+      market.boughtShares === 0 ? 0 : market.buyCash / market.boughtShares,
     soldShares: market.soldShares,
     sellProceeds: market.sellProceeds,
     averageSellPrice:
-      market.soldShares === 0 ? 0 : market.sellProceeds / market.soldShares,
+      market.soldShares === 0 ? 0 : market.sellCash / market.soldShares,
     openShares: market.openShares,
     realizedPnl: market.realizedPnl,
     fees: market.fees,
