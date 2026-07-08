@@ -4,7 +4,9 @@ const DATA_API = "https://data-api.polymarket.com";
 const CLOB_API = "https://clob.polymarket.com";
 const USER_PNL_API = "https://user-pnl-api.polymarket.com";
 const PAGE_SIZE = 500;
+const CLOSED_POSITION_PAGE_SIZE = 50;
 const MAX_OFFSET = 10_000;
+const CLOSED_POSITION_MAX_OFFSET = 100_000;
 
 export type PolymarketActivity = {
   proxyWallet: string;
@@ -58,6 +60,12 @@ export type PolymarketMarketResolution = {
   active: boolean;
   archived: boolean;
   tokens: PolymarketMarketResolutionToken[];
+};
+
+export type PolymarketMarketByToken = {
+  conditionId: string;
+  primaryTokenId: string;
+  secondaryTokenId: string;
 };
 
 type PaginatedResult<T> = { rows: T[]; truncated: boolean };
@@ -199,33 +207,50 @@ export async function getWalletActivity(input: {
   };
 }
 
-async function getPositionPages(path: "positions" | "closed-positions", user: string) {
+async function getPositionPages(path: "positions" | "closed-positions", input: {
+  user: string;
+  conditionIds?: string[];
+}) {
+  const { user } = input;
   if (!validWallet(user)) throw new Error("Invalid source wallet address.");
+  const markets = Array.from(new Set((input.conditionIds ?? []).filter(validCondition)));
+  const marketBatches = markets.length > 0 ? chunks(markets, 25) : [undefined];
+  const limit = path === "closed-positions" ? CLOSED_POSITION_PAGE_SIZE : PAGE_SIZE;
+  const maxOffset = path === "closed-positions" ? CLOSED_POSITION_MAX_OFFSET : MAX_OFFSET;
   const rows: PolymarketPosition[] = [];
   let truncated = false;
-  for (let offset = 0; offset <= MAX_OFFSET; offset += PAGE_SIZE) {
-    const params = new URLSearchParams({
-      user,
-      limit: PAGE_SIZE.toString(),
-      offset: offset.toString()
-    });
-    const page = parsePositions(await readJson(`${DATA_API}/${path}?${params}`));
-    rows.push(...page);
-    if (page.length < PAGE_SIZE) break;
-    if (offset + PAGE_SIZE > MAX_OFFSET) {
-      truncated = true;
-      break;
+
+  for (const marketBatch of marketBatches) {
+    for (let offset = 0; offset <= maxOffset; offset += limit) {
+      const params = new URLSearchParams({
+        user,
+        limit: limit.toString(),
+        offset: offset.toString()
+      });
+      if (marketBatch) params.set("market", marketBatch.join(","));
+      const page = parsePositions(await readJson(`${DATA_API}/${path}?${params}`));
+      rows.push(...page);
+      if (page.length < limit) break;
+      if (offset + limit > maxOffset) {
+        truncated = true;
+        break;
+      }
     }
   }
-  return { rows, truncated };
+
+  const unique = new Map<string, PolymarketPosition>();
+  for (const row of rows) {
+    unique.set(`${row.conditionId}:${row.asset}`, row);
+  }
+  return { rows: Array.from(unique.values()), truncated };
 }
 
-export function getCurrentPositions(user: string) {
-  return getPositionPages("positions", user);
+export function getCurrentPositions(user: string, conditionIds?: string[]) {
+  return getPositionPages("positions", { user, conditionIds });
 }
 
-export function getClosedPositions(user: string) {
-  return getPositionPages("closed-positions", user);
+export function getClosedPositions(user: string, conditionIds?: string[]) {
+  return getPositionPages("closed-positions", { user, conditionIds });
 }
 
 export async function getNativePnl(
@@ -308,5 +333,21 @@ export async function getMarketResolution(conditionId: string): Promise<Polymark
     active: row.active === true,
     archived: row.archived === true,
     tokens
+  };
+}
+
+export async function getMarketByToken(tokenId: string): Promise<PolymarketMarketByToken | undefined> {
+  if (!tokenId) throw new Error("Invalid token id.");
+  const value = await readJson(`${CLOB_API}/markets-by-token/${encodeURIComponent(tokenId)}`);
+  if (!value || typeof value !== "object") return undefined;
+
+  const row = value as Record<string, unknown>;
+  const conditionId = text(row.condition_id ?? row.conditionId);
+  if (!validCondition(conditionId)) return undefined;
+
+  return {
+    conditionId,
+    primaryTokenId: text(row.primary_token_id ?? row.primaryTokenId),
+    secondaryTokenId: text(row.secondary_token_id ?? row.secondaryTokenId)
   };
 }

@@ -5,6 +5,7 @@ import {
   getBatchPriceHistory,
   getClosedPositions,
   getCurrentPositions,
+  getMarketByToken,
   getMarketResolution,
   getNativePnl,
   getWalletActivity,
@@ -537,6 +538,26 @@ function normalizeSeries(values: number[], denominator: number, unit: "usd" | "p
   return values.map((value) => value / safe * 100);
 }
 
+async function hydrateMissingConditionIds(events: ComparisonEvent[]) {
+  const missingTokens = Array.from(new Set(events.flatMap((event) =>
+    !event.conditionId && event.clobTokenId ? [event.clobTokenId] : []
+  )));
+  if (missingTokens.length === 0) return events;
+
+  const resolved = new Map<string, string>();
+  await Promise.all(missingTokens.map(async (tokenId) => {
+    const market = await getMarketByToken(tokenId).catch(() => undefined);
+    if (market?.conditionId) resolved.set(tokenId, market.conditionId);
+  }));
+
+  if (resolved.size === 0) return events;
+  return events.map((event) => {
+    if (event.conditionId || !event.clobTokenId) return event;
+    const conditionId = resolved.get(event.clobTokenId);
+    return conditionId ? { ...event, conditionId } : event;
+  });
+}
+
 export function reconcileSession(input: {
   sessionId: string;
   sourceWallet: string;
@@ -899,7 +920,7 @@ export async function getSessionComparison(
   const portfolioSizingPct = typeof sizingSnapshot.computed_pct === "number"
     ? sizingSnapshot.computed_pct : undefined;
 
-  const events = await prisma.tradeAnalyticsEvent.findMany({
+  const rawEvents = await prisma.tradeAnalyticsEvent.findMany({
     where: {
       sessionId,
       eventType: { in: ["order_fill", "fractional_fak_fill", "market_resolution"] },
@@ -926,6 +947,7 @@ export async function getSessionComparison(
       contextJson: true
     }
   });
+  const events = await hydrateMissingConditionIds(rawEvents);
   const conditionIds = Array.from(new Set(events.flatMap((event) => event.conditionId ? [event.conditionId] : [])));
   const assets = Array.from(new Set(events.flatMap((event) => event.clobTokenId ? [event.clobTokenId] : [])));
   if (conditionIds.length === 0) return undefined;
@@ -936,8 +958,8 @@ export async function getSessionComparison(
   try {
     const [activity, current, closed, nativePnl, resolutions] = await Promise.all([
       getWalletActivity({ user: session.sourceWallet, start, end, conditionIds }),
-      getCurrentPositions(session.sourceWallet),
-      getClosedPositions(session.sourceWallet),
+      getCurrentPositions(session.sourceWallet, conditionIds),
+      getClosedPositions(session.sourceWallet, conditionIds),
       getNativePnl(session.sourceWallet, "all").catch(() => []),
       Promise.all(conditionIds.map(async (conditionId) => [conditionId, await getMarketResolution(conditionId).catch(() => undefined)] as const))
         .then((entries) => new Map(entries))
