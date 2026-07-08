@@ -1,5 +1,6 @@
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, GitCompareArrows } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { ComparisonChart } from "@/components/dashboard/comparison-chart";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +36,8 @@ export async function SessionComparison({
       </Card>
     );
   }
-  const series = filters.pnlView === "realized" ? comparison.realizedSeries : comparison.series;
+  const pnlView = filters.pnlView ?? "realized";
+  const series = pnlView === "mark" ? comparison.series : comparison.realizedSeries;
   const pnlGapPct = comparison.summary.pnlGapPct;
   const absPnlGap = comparison.summary.pnlGap;
 
@@ -78,26 +80,24 @@ export async function SessionComparison({
               {[...comparison.warnings, ...(comparison.truncated ? ["Polymarket pagination reached its 10,000-offset limit; results are partial."] : [])].join(" ")}
             </div>
           ) : null}
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]">
-            <PositionTable positions={comparison.positions} />
-            <div className="rounded-md border border-border bg-background/40 p-3">
-              <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Return-gap evidence · estimated</div>
-              <div className="grid gap-2">
-                {comparison.summary.factors.map((factor) => (
-                  <div key={factor.label} className="rounded-md border border-border/70 bg-muted/20 p-2.5">
-                    <div className="flex items-center justify-between gap-3 text-xs">
-                      <span className="font-medium">{factor.label}</span>
-                      <span className={cn("font-mono tabular-nums", factor.impact >= 0 ? "text-profit" : "text-loss")}>
-                        {factor.impact >= 0 ? <ArrowUpRight className="mr-1 inline size-3" /> : <ArrowDownRight className="mr-1 inline size-3" />}
-                        {factor.unit === "pp" ? `${factor.impact >= 0 ? "+" : ""}${factor.impact.toFixed(2)} pp` : formatCurrency(factor.impact)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{factor.detail}</p>
+          <div className="rounded-md border border-border bg-background/40 p-3">
+            <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Return-gap evidence · estimated</div>
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {comparison.summary.factors.map((factor) => (
+                <div key={factor.label} className="rounded-md border border-border/70 bg-muted/20 p-2.5">
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="font-medium">{factor.label}</span>
+                    <span className={cn("font-mono tabular-nums", factor.impact >= 0 ? "text-profit" : "text-loss")}>
+                      {factor.impact >= 0 ? <ArrowUpRight className="mr-1 inline size-3" /> : <ArrowDownRight className="mr-1 inline size-3" />}
+                      {factor.unit === "pp" ? `${factor.impact >= 0 ? "+" : ""}${factor.impact.toFixed(2)} pp` : formatCurrency(factor.impact)}
+                    </span>
                   </div>
-                ))}
-              </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{factor.detail}</p>
+                </div>
+              ))}
             </div>
           </div>
+          <PositionTable positions={comparison.positions} />
           <div className="text-right font-mono text-[10px] text-muted-foreground">External data refreshed {new Date(comparison.updatedAt).toLocaleString()} · cached 60s</div>
         </CardContent>
       </Card>
@@ -106,7 +106,7 @@ export async function SessionComparison({
 }
 
 function Toggle({ filters, field, value, label }: { filters: DashboardFilters; field: "pnlView" | "sourceScope" | "pnlUnit"; value: string; label: string }) {
-  const defaults = { pnlView: "mark", sourceScope: "matched", pnlUnit: "percent" };
+  const defaults = { pnlView: "realized", sourceScope: "matched", pnlUnit: "percent" };
   const active = (filters[field] ?? defaults[field]) === value;
   const params = new URLSearchParams();
   for (const [key, current] of Object.entries({ ...filters, [field]: value })) if (current && current !== "all") params.set(key, current);
@@ -119,32 +119,55 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "pr
 
 function PositionTable({ positions }: { positions: PositionReconciliation[] }) {
   return (
-    <div className="overflow-x-auto rounded-md border border-border">
-      <table className="w-full min-w-[1800px] text-left text-xs">
-        <thead className="bg-muted/30 text-[10px] uppercase tracking-wide text-muted-foreground"><tr><th className="px-3 py-2">Market / outcome</th><th className="px-2 py-2 text-right">Proportional sizing</th><th className="px-2 py-2 text-right">Entry · source → ours</th><th className="px-2 py-2 text-right">Exit · source → ours</th><th className="px-2 py-2 text-right">Source result</th><th className="px-2 py-2 text-right">Our result</th><th className="px-2 py-2 text-right">Return bridge</th><th className="px-2 py-2 text-right">Running return</th><th className="px-3 py-2">Diagnosis</th></tr></thead>
-        <tbody className="divide-y divide-border/70">
-          {positions.map((position) => (
-            <tr key={position.key} className="bg-card hover:bg-muted/20">
-              <td className="min-w-[360px] max-w-[460px] px-3 py-2 align-top">
-                <div className="whitespace-normal break-words text-foreground">{position.market}</div>
-                <div className="mt-1 break-all font-mono text-[10px] leading-relaxed text-muted-foreground">
-                  {position.outcome || "unknown"} · condition {position.conditionId}
-                </div>
-                {position.asset ? <div className="mt-0.5 break-all font-mono text-[10px] leading-relaxed text-muted-foreground">token {position.asset}</div> : null}
-              </td>
-              <td className="px-2 py-2"><SizingEquation position={position} /></td>
-              <td className="px-2 py-2"><PricePair source={position.sourceEntryPrice} ours={position.ourEntryPrice} delta={position.entryPriceDelta} pnl={position.entryDelayPnl} lagSeconds={position.entryLagSeconds} /></td>
-              <td className="px-2 py-2"><PricePair source={position.sourceExitPrice} ours={position.ourExitPrice} delta={position.exitPriceDelta} pnl={position.exitDelayPnl} lagSeconds={position.exitLagSeconds} lifecycleOffsetSeconds={position.exitEventOffsetSeconds} lifecycleType={position.sourceExitType} /></td>
-              <td className="px-2 py-2"><TradeResult owner="source" pnl={position.sourcePnl} capital={position.sourceBuyCapital} roi={position.sourceTradeReturnPct} contribution={position.sourceReturnContributionPct} /></td>
-              <td className="px-2 py-2"><TradeResult owner="ours" pnl={position.ourPnl} capital={position.ourBuyCapital} roi={position.ourTradeReturnPct} contribution={position.ourReturnContributionPct} fees={position.ourFees} /></td>
-              <td className="px-2 py-2 text-right font-mono"><SignedPercent value={position.returnGapContributionPct} suffix=" pp" /><div className="mt-0.5 text-[10px] text-muted-foreground">ours − source</div></td>
-              <td className="px-2 py-2 text-right font-mono"><div className="text-source">S <SignedPercent value={position.cumulativeSourceReturnPct} /></div><div className="mt-0.5 text-primary">O <SignedPercent value={position.cumulativeOurReturnPct} /></div></td>
-              <td className="px-3 py-2"><Diagnosis position={position} /></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {positions.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">No comparable positions.</div> : null}
+    <div className="grid gap-3">
+      {positions.map((position) => (
+        <article key={position.key} className="rounded-md border border-border bg-card p-3 text-xs">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 pb-3">
+            <div className="min-w-0 flex-1">
+              <div className="break-words text-sm text-foreground">{position.market}</div>
+              <div className="mt-1 break-all font-mono text-[10px] leading-relaxed text-muted-foreground">
+                {position.outcome || "unknown"} · condition {position.conditionId}
+              </div>
+              {position.asset ? <div className="mt-0.5 break-all font-mono text-[10px] leading-relaxed text-muted-foreground">token {position.asset}</div> : null}
+            </div>
+            <Diagnosis position={position} />
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <PositionMetric label="Proportional sizing">
+              <SizingEquation position={position} />
+            </PositionMetric>
+            <PositionMetric label="Entry · source → ours">
+              <PricePair source={position.sourceEntryPrice} ours={position.ourEntryPrice} delta={position.entryPriceDelta} pnl={position.entryDelayPnl} lagSeconds={position.entryLagSeconds} />
+            </PositionMetric>
+            <PositionMetric label="Exit · source → ours">
+              <PricePair source={position.sourceExitPrice} ours={position.ourExitPrice} delta={position.exitPriceDelta} pnl={position.exitDelayPnl} lagSeconds={position.exitLagSeconds} lifecycleOffsetSeconds={position.exitEventOffsetSeconds} lifecycleType={position.sourceExitType} />
+            </PositionMetric>
+            <PositionMetric label="Source result">
+              <TradeResult owner="source" pnl={position.sourcePnl} capital={position.sourceBuyCapital} roi={position.sourceTradeReturnPct} contribution={position.sourceReturnContributionPct} />
+            </PositionMetric>
+            <PositionMetric label="Our result">
+              <TradeResult owner="ours" pnl={position.ourPnl} capital={position.ourBuyCapital} roi={position.ourTradeReturnPct} contribution={position.ourReturnContributionPct} fees={position.ourFees} />
+            </PositionMetric>
+            <PositionMetric label="Return bridge">
+              <div className="font-mono tabular-nums"><SignedPercent value={position.returnGapContributionPct} suffix=" pp" /><div className="mt-0.5 text-[10px] text-muted-foreground">ours − source</div></div>
+            </PositionMetric>
+            <PositionMetric label="Running return">
+              <div className="font-mono tabular-nums"><div className="text-source">S <SignedPercent value={position.cumulativeSourceReturnPct} /></div><div className="mt-0.5 text-primary">O <SignedPercent value={position.cumulativeOurReturnPct} /></div></div>
+            </PositionMetric>
+          </div>
+        </article>
+      ))}
+      {positions.length === 0 ? <div className="rounded-md border border-border p-6 text-center text-sm text-muted-foreground">No comparable positions.</div> : null}
+    </div>
+  );
+}
+
+function PositionMetric({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      {children}
     </div>
   );
 }
@@ -178,7 +201,7 @@ function SizingEquation({ position }: { position: PositionReconciliation }) {
     return <div className="text-right font-mono text-muted-foreground">n/a</div>;
   }
   return (
-    <div className="min-w-[210px] text-right font-mono tabular-nums">
+    <div className="text-left font-mono tabular-nums">
       <div><span className="text-source">{shares(position.sourceSignalShares)}</span> × {(position.portfolioSizingPct * 100).toFixed(4)}% = <span className="text-foreground">{shares(position.proportionalTargetShares ?? 0)}</span></div>
       <div className="mt-0.5 text-[10px] text-muted-foreground">recorded target {shares(position.expectedShares)} → <span className="text-primary">peak {shares(position.ourPeakShares)}</span>{position.ourBoughtShares !== position.ourPeakShares ? ` · gross bought ${shares(position.ourBoughtShares)}` : ""}</div>
     </div>
@@ -186,9 +209,9 @@ function SizingEquation({ position }: { position: PositionReconciliation }) {
 }
 
 function TradeResult({ owner, pnl, capital, roi, contribution, fees }: { owner: "source" | "ours"; pnl?: number; capital?: number; roi?: number; contribution?: number; fees?: number }) {
-  if (!capital) return <div className="text-right font-mono text-muted-foreground">n/a</div>;
+  if (!capital) return <div className="font-mono text-muted-foreground">n/a</div>;
   return (
-    <div className="min-w-[155px] text-right font-mono tabular-nums">
+    <div className="font-mono tabular-nums">
       <div className={cn((pnl ?? 0) >= 0 ? "text-profit" : "text-loss")}>{formatCurrency(pnl ?? 0)} <span className="text-muted-foreground">on {formatCurrency(capital)}</span></div>
       <div className="mt-0.5 text-[10px] text-muted-foreground">ROI <SignedPercent value={roi} /> · adds <SignedPercent value={contribution} suffix=" pp" /></div>
       {owner === "ours" && fees ? <div className="mt-0.5 text-[10px] text-caution">fees {formatCurrency(-Math.abs(fees))}</div> : null}
@@ -208,7 +231,7 @@ function Diagnosis({ position }: { position: PositionReconciliation }) {
   if ((position.entryDelayPnl ?? 0) < -0.01) reasons.push("entry drag");
   if ((position.exitDelayPnl ?? 0) < -0.01) reasons.push("exit drag");
   if ((position.ourFees ?? 0) > 0.01) reasons.push("fees");
-  return <div className="min-w-[130px]"><Verdict verdict={position.verdict} />{reasons.length ? <div className="mt-1 text-[10px] text-muted-foreground">{reasons.join(" · ")}</div> : null}</div>;
+  return <div className="shrink-0"><Verdict verdict={position.verdict} />{reasons.length ? <div className="mt-1 max-w-[180px] text-[10px] text-muted-foreground">{reasons.join(" · ")}</div> : null}</div>;
 }
 
 function PricePair({
@@ -233,7 +256,7 @@ function PricePair({
     : source.toFixed(4);
   const oursLabel = ours === undefined ? "n/a" : ours.toFixed(4);
   return (
-    <div className="min-w-[150px] text-right font-mono tabular-nums">
+    <div className="font-mono tabular-nums">
       <div><span className={cn(source === undefined && "text-muted-foreground", source !== undefined && "text-source")}>{sourceLabel}</span><span className="px-1 text-muted-foreground">→</span><span className={cn(ours === undefined && "text-muted-foreground", ours !== undefined && "text-primary")}>{oursLabel}</span></div>
       {delta !== undefined || pnl !== undefined ? (
         <div className={cn("mt-0.5 text-[10px]", (pnl ?? 0) >= 0 ? "text-profit" : "text-loss")}>
