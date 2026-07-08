@@ -123,11 +123,11 @@ describe("session reconciliation", () => {
     expect(row.ourBoughtShares).toBe(10);
     expect(row.ourPeakShares).toBe(10);
     expect(row.sourceTradeReturnPct).toBeCloseTo(40);
-    expect(row.ourTradeReturnPct).toBeCloseTo(27.2727);
+    expect(row.ourTradeReturnPct).toBeCloseTo(0);
     expect(row.sourceReturnContributionPct).toBeCloseTo(40);
-    expect(row.ourReturnContributionPct).toBeCloseTo(27.2727);
+    expect(row.ourReturnContributionPct).toBeCloseTo(0);
     expect(row.cumulativeSourceReturnPct).toBeCloseTo(40);
-    expect(row.cumulativeOurReturnPct).toBeCloseTo(27.2727);
+    expect(row.cumulativeOurReturnPct).toBeCloseTo(0);
     expect(result.summary.sourceGrossBuyCapital).toBe(50);
     expect(result.summary.ourGrossBuyCapital).toBe(5.5);
     expect(result.summary.sourceAttributionResidual).toBeCloseTo(0);
@@ -192,6 +192,51 @@ describe("session reconciliation", () => {
     expect(result.positions[0].exitPriceDelta).toBeCloseTo(0.05);
     expect(result.positions[0].exitDelayPnl).toBeCloseTo(0.5);
     expect(result.realizedSeries.at(-1)!.ours).toBeCloseTo(2.5);
+  });
+
+  it("uses reconstructed local averages and realized PnL for our row result", () => {
+    const secondBuy = event({
+      createdAt: new Date("2026-06-26T10:01:00Z"),
+      price: 0.65,
+      grossCash: 6.5,
+      heldAfter: 20
+    });
+    const firstSell = event({
+      createdAt: new Date("2026-06-26T10:05:00Z"),
+      side: "SELL",
+      price: 0.7,
+      grossCash: 3.5,
+      filledShares: 5,
+      heldAfter: 15
+    });
+    const secondSell = event({
+      createdAt: new Date("2026-06-26T10:06:00Z"),
+      side: "SELL",
+      price: 0.9,
+      grossCash: 13.5,
+      filledShares: 15,
+      heldAfter: 0
+    });
+    const result = reconcile({
+      events: [event(), secondBuy, firstSell, secondSell],
+      currentPositions: [],
+      closedPositions: [position({ size: 0 })]
+    });
+    const row = result.positions[0];
+
+    expect(row.ourEntryPrice).toBeCloseTo(0.6);
+    expect(row.ourExitPrice).toBeCloseTo(0.85);
+    expect(row.ourPnl).toBeCloseTo(5);
+    expect(row.ourTradeReturnPct).toBeCloseTo(41.6667);
+  });
+
+  it("reconciles fractional FAK fills as local positions", () => {
+    const result = reconcile({
+      events: [event({ eventType: "fractional_fak_fill" })]
+    });
+
+    expect(result.positions).toHaveLength(1);
+    expect(result.positions[0].ourEntryPrice).toBeCloseTo(0.55);
   });
 
   it("uses market resolution when source positions are unavailable", () => {
