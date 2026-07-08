@@ -55,10 +55,11 @@ export function DeploymentGrid({
   const selectedSessions = deploymentRef
     ? sessions.filter((session) => session.deploymentKey === deploymentRef || session.deploymentId === deploymentRef)
     : [];
+  const selectedSessionActive = Boolean(filters.session && filters.session !== "all");
 
   return (
     <div className="grid min-w-0 gap-4">
-      {selectedDeployment ? (
+      {selectedDeployment && !selectedSessionActive ? (
         <DeploymentDetail deployment={selectedDeployment} sessions={selectedSessions} />
       ) : null}
 

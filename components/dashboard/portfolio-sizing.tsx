@@ -13,7 +13,7 @@ export function PortfolioSizing({
       : sizing.computedPct;
 
   return (
-    <section className="grid gap-3 rounded-md border border-border bg-muted/20 p-3">
+    <section id="portfolio-sizing" className="scroll-mt-16 grid gap-3 rounded-md border border-border bg-muted/20 p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">Portfolio sizing</h2>

@@ -18,7 +18,7 @@ export function MarketPositions({
   positions: MarketPositionSummary[];
 }) {
   return (
-    <Card>
+    <Card id="market-positions" className="scroll-mt-16">
       <CardHeader className="pb-3">
         <CardTitle>Market positions</CardTitle>
         <CardDescription>

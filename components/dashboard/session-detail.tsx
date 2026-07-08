@@ -29,7 +29,7 @@ export function SessionDetail({
 
   return (
     <section className="grid min-w-0 gap-4">
-      <Card>
+      <Card id="session-overview" className="scroll-mt-16">
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
@@ -215,7 +215,9 @@ export function SessionDetail({
       </Card>
 
       <MarketPositions positions={session.marketPositions} />
-      <EvidenceTable evidence={evidence} />
+      <section id="evidence" className="scroll-mt-16">
+        <EvidenceTable evidence={evidence} />
+      </section>
     </section>
   );
 }

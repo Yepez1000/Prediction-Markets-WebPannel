@@ -27,7 +27,11 @@ export function Dashboard({
     <main className="min-h-screen">
       <header className="border-b border-border bg-background">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
-          <div className="flex min-w-0 items-center gap-2">
+          <Link
+            href="/"
+            className="flex min-w-0 items-center gap-2 rounded-md outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            aria-label="Go to dashboard home"
+          >
             <Database className="size-5 shrink-0 text-primary" />
             <div className="min-w-0">
               <h1 className="truncate text-sm font-semibold">
@@ -37,7 +41,7 @@ export function Dashboard({
                 Deployment/session performance
               </p>
             </div>
-          </div>
+          </Link>
           <div className="flex items-center gap-2">
             <Badge variant={data.isConfigured ? "profit" : "caution"}>
               {data.isConfigured ? "Connected" : "Env needed"}
@@ -72,6 +76,7 @@ export function Dashboard({
           sessions={data.sessions}
           filters={filters}
         />
+        {selectedSession ? <SectionNav hasSizing={Boolean(selectedSession.sizing)} hasComparison={Boolean(comparison)} /> : null}
         <SessionDetail session={selectedSession} evidence={data.evidence} />
         {comparison}
         <footer className="pb-4 text-xs text-muted-foreground">
@@ -79,5 +84,37 @@ export function Dashboard({
         </footer>
       </div>
     </main>
+  );
+}
+
+function SectionNav({
+  hasSizing,
+  hasComparison
+}: {
+  hasSizing: boolean;
+  hasComparison: boolean;
+}) {
+  const links = [
+    ["Overview", "#session-overview"],
+    ...(hasSizing ? [["Sizing", "#portfolio-sizing"]] : []),
+    ["Market positions", "#market-positions"],
+    ...(hasComparison ? [["Reconciliation", "#reconciliation"]] : []),
+    ["Evidence", "#evidence"]
+  ] as const;
+
+  return (
+    <nav className="sticky top-0 z-20 -mx-4 border-y border-border bg-background/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6" aria-label="Session sections">
+      <div className="flex gap-2 overflow-x-auto text-xs">
+        {links.map(([label, href]) => (
+          <Link
+            key={href}
+            href={href}
+            className="shrink-0 rounded-full border border-border bg-muted/30 px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+          >
+            {label}
+          </Link>
+        ))}
+      </div>
+    </nav>
   );
 }

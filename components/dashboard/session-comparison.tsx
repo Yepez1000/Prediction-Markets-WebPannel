@@ -40,7 +40,7 @@ export async function SessionComparison({
   const absPnlGap = comparison.summary.pnlGap;
 
   return (
-    <section className="grid min-w-0 gap-4" aria-labelledby="wallet-comparison-title">
+    <section id="reconciliation" className="scroll-mt-16 grid min-w-0 gap-4" aria-labelledby="wallet-comparison-title">
       <Card>
         <CardHeader className="border-b border-border/70 pb-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
