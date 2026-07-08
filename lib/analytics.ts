@@ -646,13 +646,14 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
   const markets = new Map<string, MarketAccumulator>();
   const pnlSeries: PnlPoint[] = [];
   const capitalByMarket = new Map<string, number>();
+  let cumulativeRealizedPnl = 0;
   let realizedPnl = 0;
   let totalFees = 0;
   let totalVolume = 0;
   let tradeCount = 0;
   let maxCapitalDeployed = 0;
 
-  for (const event of events) {
+  for (const event of events.slice().sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
     if (!isLifecycleFillEvent(event)) continue;
     if (
       event.status !== "FILLED" &&
@@ -736,6 +737,15 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
       market.costBasis = Math.max(0, market.costBasis - realizedCost);
       capitalByMarket.set(key, market.costBasis);
       market.realizedPnl += tradePnl;
+      cumulativeRealizedPnl += tradePnl;
+      pnlSeries.push({
+        when,
+        value: cumulativeRealizedPnl,
+        delta: tradePnl,
+        price: market.lastPrice,
+        market: market.market,
+        action: event.eventType === "market_resolution" ? "market_resolution" : "position_exit"
+      });
       if (market.openShares <= 1e-9 || event.eventType === "market_resolution") {
         market.resolved = true;
       }
@@ -752,23 +762,6 @@ function buildLifecycleMetrics(events: EventWithContext[]): LifecycleMetrics {
   totalVolume = resolvedMarketAccumulators.reduce((total, market) => total + market.volume, 0);
   tradeCount = resolvedMarketAccumulators.reduce((total, market) => total + market.fillCount, 0);
 
-  let cumulativePnl = 0;
-  for (const market of resolvedMarketAccumulators
-    .slice()
-    .sort(
-      (a, b) =>
-        new Date(a.lastTradeAt ?? 0).getTime() - new Date(b.lastTradeAt ?? 0).getTime()
-    )) {
-    cumulativePnl += market.realizedPnl;
-    pnlSeries.push({
-      when: market.lastTradeAt ?? market.firstTradeAt ?? new Date(0).toISOString(),
-      value: cumulativePnl,
-      delta: market.realizedPnl,
-      price: market.lastPrice,
-      market: market.market,
-      action: market.openShares <= 1e-9 ? "market_closed" : "market_resolution"
-    });
-  }
   const unrealizedPnl = undefined;
   const marketPositions = marketAccumulators.map(toMarketPositionSummary);
   const resolvedPositions = marketPositions.filter((position) => position.resolved);
