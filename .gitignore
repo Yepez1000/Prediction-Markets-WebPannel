@@ -8,3 +8,8 @@ coverage/
 *.log
 *.tsbuildinfo
 .DS_Store
+.dmux/
+.dmux-hooks/
+.codex
+
+
