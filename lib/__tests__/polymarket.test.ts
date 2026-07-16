@@ -45,6 +45,27 @@ describe("Polymarket activity client", () => {
     expect(String(fetchMock.mock.calls[1][0])).toContain("offset=500");
   });
 
+  it("retries a transient 403 before returning activity", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 403, headers: new Headers() })
+      .mockResolvedValueOnce({ ok: true, json: async () => [activity(1)] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getWalletActivity({ user: wallet, start: 0, end: 1000, conditionIds: [conditionId] });
+
+    expect(result.rows).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports the endpoint after transient retries are exhausted", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 403, headers: new Headers() });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getWalletActivity({ user: wallet, start: 0, end: 1000, conditionIds: [conditionId] }))
+      .rejects.toThrow("Polymarket request to /activity failed after 3 attempts");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("rejects invalid wallet addresses before making a request", async () => {
     vi.stubGlobal("fetch", vi.fn());
     await expect(getWalletActivity({ user: "bad", start: 0, end: 1, conditionIds: [conditionId] }))

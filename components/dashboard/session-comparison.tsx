@@ -98,7 +98,7 @@ export async function SessionComparison({
             </div>
           </div>
           <PositionTable positions={comparison.positions} />
-          <div className="text-right font-mono text-[10px] text-muted-foreground">External data refreshed {new Date(comparison.updatedAt).toLocaleString()} · cached 60s</div>
+          <div className="text-right font-mono text-[10px] text-muted-foreground">External data refreshed {new Date(comparison.updatedAt).toLocaleString()} · cached 60s while active / 24h when ended</div>
         </CardContent>
       </Card>
     </section>
