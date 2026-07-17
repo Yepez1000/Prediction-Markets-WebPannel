@@ -1620,7 +1620,7 @@ export async function getDashboardData(
           return events as EventLite[];
         })
         .catch((error) => {
-          console.error("[dashboard-events] session load failed", {
+          console.warn("[dashboard-events] session load unavailable", {
             selectedSessionId,
             message: error instanceof Error ? error.message : String(error)
           });
@@ -1979,7 +1979,7 @@ export async function getDashboardData(
   } catch (error) {
     return emptyDashboard(
       appName,
-      error instanceof Error ? error.message : "Unable to read dashboard data."
+      dashboardErrorMessage(error)
     );
   }
 }
@@ -2052,4 +2052,11 @@ function emptyDashboard(appName: string, error: string): DashboardData {
     },
     updatedAt: new Date().toISOString()
   };
+}
+
+function dashboardErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unable to read dashboard data.";
+  return message.includes("Can't reach database server")
+    ? "Cannot reach the configured database. Connect to its private network or set DATABASE_URL to an accessible endpoint."
+    : message;
 }
