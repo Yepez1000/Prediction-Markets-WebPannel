@@ -23,6 +23,51 @@ import type {
   SessionComparison
 } from "@/lib/types";
 
+const COMPARISON_CACHE_TTL_MS = 60_000;
+const COMPARISON_CACHE_LIMIT = 100;
+const RESOLUTION_CONCURRENCY = 8;
+
+type ComparisonCacheEntry = {
+  expiresAt: number;
+  value: Promise<SessionComparison | undefined>;
+};
+
+const comparisonCache = new Map<string, ComparisonCacheEntry>();
+
+function comparisonCacheKey(sessionId: string, filters: DashboardFilters) {
+  const sourceScope = filters.sourceScope === "wallet" ? "wallet" : "matched";
+  const unit = filters.pnlUnit === "usd" ? "usd" : "percent";
+  return `${sessionId}:${sourceScope}:${unit}`;
+}
+
+function pruneComparisonCache(now: number) {
+  for (const [key, entry] of comparisonCache) {
+    if (entry.expiresAt <= now) comparisonCache.delete(key);
+  }
+  while (comparisonCache.size >= COMPARISON_CACHE_LIMIT) {
+    const oldestKey = comparisonCache.keys().next().value;
+    if (!oldestKey) break;
+    comparisonCache.delete(oldestKey);
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  limit: number,
+  map: (value: T) => Promise<R>
+) {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await map(values[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, worker));
+  return results;
+}
+
 export type ComparisonEvent = {
   createdAt: Date;
   eventType: string;
@@ -986,7 +1031,23 @@ export async function getSessionComparison(
   sessionId: string,
   filters: DashboardFilters
 ): Promise<SessionComparison | undefined> {
+  const now = Date.now();
+  const key = comparisonCacheKey(sessionId, filters);
+  const cached = comparisonCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  pruneComparisonCache(now);
+  const value = loadSessionComparison(sessionId, filters);
+  comparisonCache.set(key, { expiresAt: now + COMPARISON_CACHE_TTL_MS, value });
+  return value;
+}
+
+async function loadSessionComparison(
+  sessionId: string,
+  filters: DashboardFilters
+): Promise<SessionComparison | undefined> {
   const prisma = getPrisma();
+  const loadStartedAt = performance.now();
   const session = await prisma.strategySession.findUnique({
     where: { sessionId },
     select: {
@@ -1044,19 +1105,28 @@ export async function getSessionComparison(
   const fidelityMinutes = Math.max(5, Math.ceil((end - start) / 240 / 60));
 
   try {
+    const externalStartedAt = performance.now();
     const [activity, current, closed, nativePnl, resolutions] = await Promise.all([
       getWalletActivity({ user: session.sourceWallet, start, end, conditionIds }),
       getCurrentPositions(session.sourceWallet, conditionIds),
       getClosedPositions(session.sourceWallet, conditionIds),
-      getNativePnl(session.sourceWallet, "all").catch(() => []),
-      Promise.all(conditionIds.map(async (conditionId) => [conditionId, await getMarketResolution(conditionId).catch(() => undefined)] as const))
+      sourceScope === "wallet"
+        ? getNativePnl(session.sourceWallet, "all").catch(() => [])
+        : Promise.resolve([]),
+      mapWithConcurrency(conditionIds, RESOLUTION_CONCURRENCY, async (conditionId) =>
+        [conditionId, await getMarketResolution(conditionId).catch(() => undefined)] as const
+      )
         .then((entries) => new Map(entries))
     ]);
+    const externalMs = performance.now() - externalStartedAt;
     const priceAssets = Array.from(new Set([
       ...assets,
       ...activity.rows.flatMap((row) => row.asset ? [row.asset] : [])
     ]));
+    const priceStartedAt = performance.now();
     const prices = await getBatchPriceHistory({ assets: priceAssets, start, end, fidelityMinutes }).catch(() => new Map());
+    const priceMs = performance.now() - priceStartedAt;
+    const reconcileStartedAt = performance.now();
     const result = reconcileSession({
       sessionId,
       sourceWallet: session.sourceWallet,
@@ -1076,6 +1146,19 @@ export async function getSessionComparison(
       resolutions,
       truncated: activity.truncated || current.truncated || closed.truncated,
       warnings: prices.size === 0 ? ["Historical prices were unavailable; fill prices are used as fallback marks."] : []
+    });
+    const reconcileMs = performance.now() - reconcileStartedAt;
+    console.info("[session-comparison-timing]", {
+      sessionId,
+      conditions: conditionIds.length,
+      assets: priceAssets.length,
+      activity: activity.rows.length,
+      currentPositions: current.rows.length,
+      closedPositions: closed.rows.length,
+      externalMs: Math.round(externalMs),
+      priceMs: Math.round(priceMs),
+      reconcileMs: Math.round(reconcileMs),
+      totalMs: Math.round(performance.now() - loadStartedAt)
     });
     persistReconciliation(result).catch((err) => {
       console.error("Failed to persist reconciliation:", err);

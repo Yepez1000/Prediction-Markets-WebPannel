@@ -158,6 +158,7 @@ model TradeAnalyticsEvent {
   @@index([deploymentKey], map: "ix_trade_analytics_events_deployment_key")
   @@index([paperMode, createdAt], map: "ix_trade_analytics_events_mode_created")
   @@index([paperMode, sessionId, createdAt], map: "ix_trade_analytics_events_mode_session_created")
+  @@index([sessionId, createdAt, id], map: "ix_trade_analytics_events_session_created_id")
   @@index([paperMode, deploymentKey, createdAt], map: "ix_trade_analytics_events_mode_deployment_created")
   @@map("trade_analytics_events")
 }
