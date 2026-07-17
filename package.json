@@ -3,20 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "NODE_OPTIONS='--import ./scripts/load-parent-env.mjs' next dev",
+    "build": "NODE_OPTIONS='--import ./scripts/load-parent-env.mjs' next build",
+    "start": "NODE_OPTIONS='--import ./scripts/load-parent-env.mjs' next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "prisma:validate": "prisma validate",
-    "prisma:generate": "prisma generate"
+    "prisma:validate": "NODE_OPTIONS='--import ./scripts/load-parent-env.mjs' prisma validate",
+    "prisma:generate": "NODE_OPTIONS='--import ./scripts/load-parent-env.mjs' prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^6.10.1",
     "@radix-ui/react-slot": "^1.1.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dotenv": "^16.6.1",
     "lucide-react": "^0.468.0",
     "next": "^15.3.4",
     "react": "^19.0.0",
