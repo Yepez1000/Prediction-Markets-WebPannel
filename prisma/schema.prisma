@@ -73,6 +73,7 @@ model Trade {
   sessionId           String?   @map("session_id") @db.VarChar(36)
   market              Market?   @relation(fields: [marketId], references: [id])
 
+  @@index([sessionId, createdAt], map: "ix_trades_session_created")
   @@map("trades")
 }
 
@@ -102,6 +103,7 @@ model PaperTrade {
   instanceName        String?   @map("instance_name") @db.VarChar(64)
   market              Market?   @relation(fields: [marketId], references: [id])
 
+  @@index([sessionId, createdAt], map: "ix_paper_trades_session_created")
   @@map("paper_trades")
 }
 
@@ -160,6 +162,7 @@ model TradeAnalyticsEvent {
   @@index([paperMode, sessionId, createdAt], map: "ix_trade_analytics_events_mode_session_created")
   @@index([sessionId, createdAt, id], map: "ix_trade_analytics_events_session_created_id")
   @@index([paperMode, deploymentKey, createdAt], map: "ix_trade_analytics_events_mode_deployment_created")
+  @@index([sessionId, createdAt], map: "ix_trade_analytics_events_session_created")
   @@map("trade_analytics_events")
 }
 
@@ -369,11 +372,13 @@ model SessionReconciliation {
   pnlGapPct       Float?   @map("pnl_gap_pct")
   factorsJson     String?  @map("factors_json") @db.Text
   seriesJson      String?  @map("series_json") @db.Text
+  payloadJson     String?  @map("payload_json") @db.Text
   createdAt       DateTime @default(now()) @map("created_at")
 
   session    StrategySession        @relation(fields: [sessionId], references: [sessionId])
   positions  ReconciliationPosition[]
 
+  @@index([sessionId, sourceScope, unit, createdAt], map: "ix_session_reconciliations_cache_lookup")
   @@index([sessionId])
   @@index([createdAt])
   @@map("session_reconciliations")

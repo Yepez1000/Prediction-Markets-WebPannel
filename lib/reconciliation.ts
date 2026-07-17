@@ -15,7 +15,10 @@ import {
   type PolymarketPosition,
   type PolymarketPricePoint
 } from "@/lib/polymarket";
-import { persistReconciliation } from "@/lib/reconciliation-persistence";
+import {
+  getCachedReconciliation,
+  persistReconciliation
+} from "@/lib/reconciliation-persistence";
 import type {
   ComparisonPnlPoint,
   DashboardFilters,
@@ -88,6 +91,15 @@ export type ComparisonEvent = {
   contextJson: string | null;
 };
 
+export function reconciliationCacheMaxAgeMs(input: {
+  endedAt: Date | null;
+  status: string;
+}) {
+  return input.endedAt || input.status !== "active"
+    ? 24 * 60 * 60 * 1000
+    : 60 * 1000;
+}
+
 type LocalPosition = {
   key: string;
   conditionId: string;
@@ -125,6 +137,11 @@ type PortfolioFill = {
 
 type MarketResolutionMap = Map<string, PolymarketMarketResolution | undefined>;
 
+type OptionalSource<T> = {
+  value: T;
+  warning?: string;
+};
+
 function number(value: number | null | undefined) {
   return value && Number.isFinite(value) ? value : 0;
 }
@@ -147,6 +164,45 @@ function parseContext(value: string | null) {
   } catch {
     return {};
   }
+}
+
+async function loadOptional<T>(label: string, fallback: T, load: () => Promise<T>): Promise<OptionalSource<T>> {
+  try {
+    return { value: await load() };
+  } catch {
+    return {
+      value: fallback,
+      warning: `Polymarket could not load ${label} after retries; this comparison uses source activity without that enrichment.`
+    };
+  }
+}
+
+async function getResolutionMap(conditionIds: string[]): Promise<OptionalSource<MarketResolutionMap>> {
+  const resolutions = new Map<string, PolymarketMarketResolution | undefined>();
+  let unavailable = 0;
+  let nextIndex = 0;
+  const concurrency = Math.min(8, conditionIds.length);
+
+  await Promise.all(Array.from({ length: concurrency }, async () => {
+    while (nextIndex < conditionIds.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const conditionId = conditionIds[index];
+      try {
+        resolutions.set(conditionId, await getMarketResolution(conditionId));
+      } catch {
+        unavailable += 1;
+        resolutions.set(conditionId, undefined);
+      }
+    }
+  }));
+
+  return {
+    value: resolutions,
+    warning: unavailable > 0
+      ? `Polymarket market-resolution data was unavailable for ${unavailable} ${unavailable === 1 ? "market" : "markets"}; settlement enrichment may be incomplete.`
+      : undefined
+  };
 }
 
 function contextNumber(event: ComparisonEvent, key: string) {
@@ -1056,14 +1112,33 @@ async function loadSessionComparison(
       startedAt: true,
       endedAt: true,
       lastEventAt: true,
+      status: true,
       initialBankroll: true,
       sizingSnapshotJson: true
     }
   });
   if (!session?.sourceWallet) return undefined;
+  const comparisonStartedAt = performance.now();
   const endedAt = session.endedAt ?? session.lastEventAt ?? new Date();
   const sourceScope = filters.sourceScope === "wallet" ? "wallet" : "matched";
   const unit = filters.pnlUnit === "usd" ? "usd" : "percent";
+  const maxCacheAgeMs = reconciliationCacheMaxAgeMs(session);
+  const cached = await getCachedReconciliation({
+    sessionId,
+    sourceScope,
+    unit,
+    maxAgeMs: maxCacheAgeMs
+  });
+  if (cached) {
+    console.info("[reconciliation-cache] hit", {
+      sessionId,
+      sourceScope,
+      unit,
+      totalMs: Math.round(performance.now() - comparisonStartedAt)
+    });
+    return cached;
+  }
+  console.info("[reconciliation-cache] miss", { sessionId, sourceScope, unit });
   const sessionBankroll = session.initialBankroll ?? undefined;
   const sizingSnapshot = parseContext(session.sizingSnapshotJson);
   const portfolioSizingPct = typeof sizingSnapshot.computed_pct === "number"
@@ -1106,17 +1181,16 @@ async function loadSessionComparison(
 
   try {
     const externalStartedAt = performance.now();
-    const [activity, current, closed, nativePnl, resolutions] = await Promise.all([
-      getWalletActivity({ user: session.sourceWallet, start, end, conditionIds }),
-      getCurrentPositions(session.sourceWallet, conditionIds),
-      getClosedPositions(session.sourceWallet, conditionIds),
+    // Activity is the required source of truth. The remaining calls enrich the
+    // comparison and must not hide a useful activity-derived result.
+    const activity = await getWalletActivity({ user: session.sourceWallet, start, end, conditionIds });
+    const [current, closed, nativePnl, resolutions] = await Promise.all([
+      loadOptional("current positions", { rows: [] as PolymarketPosition[], truncated: false }, () => getCurrentPositions(session.sourceWallet, conditionIds)),
+      loadOptional("closed positions", { rows: [] as PolymarketPosition[], truncated: false }, () => getClosedPositions(session.sourceWallet, conditionIds)),
       sourceScope === "wallet"
-        ? getNativePnl(session.sourceWallet, "all").catch(() => [])
-        : Promise.resolve([]),
-      mapWithConcurrency(conditionIds, RESOLUTION_CONCURRENCY, async (conditionId) =>
-        [conditionId, await getMarketResolution(conditionId).catch(() => undefined)] as const
-      )
-        .then((entries) => new Map(entries))
+        ? loadOptional("native wallet PnL", [] as PolymarketPnlPoint[], () => getNativePnl(session.sourceWallet, "all"))
+        : Promise.resolve<OptionalSource<PolymarketPnlPoint[]>>({ value: [] }),
+      getResolutionMap(conditionIds)
     ]);
     const externalMs = performance.now() - externalStartedAt;
     const priceAssets = Array.from(new Set([
@@ -1124,8 +1198,18 @@ async function loadSessionComparison(
       ...activity.rows.flatMap((row) => row.asset ? [row.asset] : [])
     ]));
     const priceStartedAt = performance.now();
-    const prices = await getBatchPriceHistory({ assets: priceAssets, start, end, fidelityMinutes }).catch(() => new Map());
+    const priceHistory = await loadOptional("historical prices", new Map<string, PolymarketPricePoint[]>(), () =>
+      getBatchPriceHistory({ assets: priceAssets, start, end, fidelityMinutes })
+    );
     const priceMs = performance.now() - priceStartedAt;
+    const warnings = [
+      current.warning,
+      closed.warning,
+      nativePnl.warning,
+      resolutions.warning,
+      priceHistory.warning,
+      priceHistory.value.size === 0 ? "Historical prices were unavailable; fill prices are used as fallback marks." : undefined
+    ].filter((warning): warning is string => Boolean(warning));
     const reconcileStartedAt = performance.now();
     const result = reconcileSession({
       sessionId,
@@ -1134,18 +1218,24 @@ async function loadSessionComparison(
       endedAt,
       events,
       activity: activity.rows,
-      currentPositions: current.rows,
-      closedPositions: closed.rows,
-      nativePnl,
-      prices,
+      currentPositions: current.value.rows,
+      closedPositions: closed.value.rows,
+      nativePnl: nativePnl.value,
+      prices: priceHistory.value,
       sourceScope,
       unit,
       sessionBankroll,
       portfolioSizingPct,
-      allSourcePositions: [...current.rows, ...closed.rows],
-      resolutions,
-      truncated: activity.truncated || current.truncated || closed.truncated,
-      warnings: prices.size === 0 ? ["Historical prices were unavailable; fill prices are used as fallback marks."] : []
+      allSourcePositions: [...current.value.rows, ...closed.value.rows],
+      resolutions: resolutions.value,
+      truncated: activity.truncated || current.value.truncated || closed.value.truncated,
+      warnings
+    });
+    console.info("[reconciliation] fresh", {
+      sessionId,
+      events: events.length,
+      markets: conditionIds.length,
+      totalMs: Math.round(performance.now() - comparisonStartedAt)
     });
     const reconcileMs = performance.now() - reconcileStartedAt;
     console.info("[session-comparison-timing]", {
@@ -1153,8 +1243,8 @@ async function loadSessionComparison(
       conditions: conditionIds.length,
       assets: priceAssets.length,
       activity: activity.rows.length,
-      currentPositions: current.rows.length,
-      closedPositions: closed.rows.length,
+      currentPositions: current.value.rows.length,
+      closedPositions: closed.value.rows.length,
       externalMs: Math.round(externalMs),
       priceMs: Math.round(priceMs),
       reconcileMs: Math.round(reconcileMs),

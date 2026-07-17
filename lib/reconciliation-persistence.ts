@@ -8,7 +8,69 @@ let missingTableWarningLogged = false;
 
 function isMissingTableError(error: unknown) {
   return typeof error === "object" && error !== null && "code" in error
-    && (error as { code?: string }).code === "P2021";
+    && ["P2021", "P2022"].includes((error as { code?: string }).code ?? "");
+}
+
+function parseCachedComparison(value: string): SessionComparison | undefined {
+  try {
+    const payload = JSON.parse(value) as { version?: unknown; comparison?: unknown };
+    const comparison = payload.version === 1 ? payload.comparison : undefined;
+    if (!comparison || typeof comparison !== "object") return undefined;
+    const candidate = comparison as Partial<SessionComparison>;
+    if (
+      typeof candidate.sessionId !== "string" ||
+      typeof candidate.sourceWallet !== "string" ||
+      !Array.isArray(candidate.series) ||
+      !Array.isArray(candidate.realizedSeries) ||
+      !Array.isArray(candidate.positions) ||
+      !candidate.summary ||
+      !Array.isArray(candidate.warnings)
+    ) return undefined;
+    return candidate as SessionComparison;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function getCachedReconciliation(input: {
+  sessionId: string;
+  sourceScope: SessionComparison["sourceScope"];
+  unit: SessionComparison["unit"];
+  maxAgeMs: number;
+}) {
+  if (persistenceUnavailable) return undefined;
+
+  try {
+    const row = await getPrisma().sessionReconciliation.findFirst({
+      where: {
+        sessionId: input.sessionId,
+        sourceScope: input.sourceScope,
+        unit: input.unit,
+        payloadJson: { not: null },
+        createdAt: { gte: new Date(Date.now() - input.maxAgeMs) }
+      },
+      orderBy: { createdAt: "desc" },
+      select: { payloadJson: true }
+    });
+    const comparison = row?.payloadJson ? parseCachedComparison(row.payloadJson) : undefined;
+    return comparison &&
+      comparison.sessionId === input.sessionId &&
+      comparison.sourceScope === input.sourceScope &&
+      comparison.unit === input.unit
+      ? comparison
+      : undefined;
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      persistenceUnavailable = true;
+      if (!missingTableWarningLogged) {
+        missingTableWarningLogged = true;
+        console.warn("Reconciliation persistence is disabled until its database migration is applied.");
+      }
+      return undefined;
+    }
+    console.error("Failed to read reconciliation cache:", error);
+    return undefined;
+  }
 }
 
 export async function persistReconciliation(
@@ -32,6 +94,7 @@ export async function persistReconciliation(
       pnlGapPct: comparison.summary.pnlGapPct,
       factorsJson: JSON.stringify(comparison.summary.factors),
       seriesJson: JSON.stringify({ series: comparison.series, realizedSeries: comparison.realizedSeries }),
+      payloadJson: JSON.stringify({ version: 1, comparison }),
       positions: {
         createMany: {
           data: comparison.positions.map((pos) => ({

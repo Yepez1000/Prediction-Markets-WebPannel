@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { reconcileSession, type ComparisonEvent } from "@/lib/reconciliation";
+import {
+  reconcileSession,
+  reconciliationCacheMaxAgeMs,
+  type ComparisonEvent
+} from "@/lib/reconciliation";
 import type { PolymarketActivity, PolymarketMarketResolution, PolymarketPosition } from "@/lib/polymarket";
 
 const wallet = "0x927f7694de44d19a72bce76254e628d1c141d215";
@@ -108,6 +112,12 @@ function reconcile(overrides: Partial<Parameters<typeof reconcileSession>[0]> = 
 }
 
 describe("session reconciliation", () => {
+  it("uses a short cache for active sessions and a day-long cache once ended", () => {
+    expect(reconciliationCacheMaxAgeMs({ endedAt: null, status: "active" })).toBe(60_000);
+    expect(reconciliationCacheMaxAgeMs({ endedAt: null, status: "stopped" })).toBe(86_400_000);
+    expect(reconciliationCacheMaxAgeMs({ endedAt: new Date(), status: "active" })).toBe(86_400_000);
+  });
+
   it("matches condition and asset and measures entry lag and slippage", () => {
     const result = reconcile();
     const row = result.positions[0];

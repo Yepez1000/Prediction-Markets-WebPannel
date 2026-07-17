@@ -7,6 +7,9 @@ const PAGE_SIZE = 500;
 const CLOSED_POSITION_PAGE_SIZE = 50;
 const MAX_OFFSET = 10_000;
 const CLOSED_POSITION_MAX_OFFSET = 100_000;
+const MAX_REQUEST_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 100;
+const CLOB_ENRICHMENT_CONCURRENCY = 8;
 
 export type PolymarketActivity = {
   proxyWallet: string;
@@ -90,14 +93,49 @@ async function readJson(
   url: string,
   init?: RequestInit & { next?: { revalidate?: number } }
 ) {
-  const response = await fetch(url, {
-    ...init,
-    headers: { Accept: "application/json", ...init?.headers },
-    next: { revalidate: 60 },
-    signal: AbortSignal.timeout(120_000)
-  });
-  if (!response.ok) throw new Error(`Polymarket returned ${response.status}.`);
-  return response.json() as Promise<unknown>;
+  const endpoint = new URL(url).pathname;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= MAX_REQUEST_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        ...init,
+        headers: { Accept: "application/json", ...init?.headers },
+        next: { revalidate: 60 },
+        signal: AbortSignal.timeout(120_000)
+      });
+      if (response.ok) return response.json() as Promise<unknown>;
+
+      lastError = new Error(`Polymarket ${endpoint} returned ${response.status}.`);
+      if (!isTransientStatus(response.status) || attempt === MAX_REQUEST_ATTEMPTS) break;
+      await delay(retryDelayMs(attempt, response.headers.get("retry-after")));
+    } catch (error) {
+      lastError = error;
+      if (attempt === MAX_REQUEST_ATTEMPTS) break;
+      await delay(retryDelayMs(attempt));
+    }
+  }
+
+  const detail = lastError instanceof Error ? lastError.message : "Unknown request failure.";
+  throw new Error(`Polymarket request to ${endpoint} failed after ${MAX_REQUEST_ATTEMPTS} attempts: ${detail}`);
+}
+
+function isTransientStatus(status: number) {
+  return status === 403 || status === 429 || status >= 500;
+}
+
+function retryDelayMs(attempt: number, retryAfter: string | null = null) {
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 5_000);
+    const date = Date.parse(retryAfter);
+    if (Number.isFinite(date)) return Math.min(Math.max(0, date - Date.now()), 5_000);
+  }
+  return RETRY_BASE_DELAY_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * RETRY_BASE_DELAY_MS);
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 function parseActivity(value: unknown): PolymarketActivity[] {
@@ -160,6 +198,20 @@ function chunks<T>(values: T[], size: number) {
     result.push(values.slice(index, index + size));
   }
   return result;
+}
+
+async function mapWithConcurrency<T, R>(values: T[], concurrency: number, worker: (value: T) => Promise<R>) {
+  const results: R[] = new Array(values.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(values[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 export async function getWalletActivity(input: {
@@ -279,7 +331,7 @@ export async function getBatchPriceHistory(input: {
 }) {
   const history = new Map<string, PolymarketPricePoint[]>();
   const assets = Array.from(new Set(input.assets.filter(Boolean)));
-  await Promise.all(chunks(assets, 20).map(async (marketBatch) => {
+  await mapWithConcurrency(chunks(assets, 20), CLOB_ENRICHMENT_CONCURRENCY, async (marketBatch) => {
     const value = await readJson(`${CLOB_API}/batch-prices-history`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -303,7 +355,7 @@ export async function getBatchPriceHistory(input: {
         return Number.isFinite(t) && Number.isFinite(p) ? [{ t, p }] : [];
       }));
     }
-  }));
+  });
   return history;
 }
 
