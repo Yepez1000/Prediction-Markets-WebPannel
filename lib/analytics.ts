@@ -1483,7 +1483,7 @@ async function loadSessionTrades(sessionId: string, mode: string, take?: number)
       ? Promise.resolve([])
       : prisma.trade.findMany({
           where: { sessionId },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
            ...(take ? { take } : {}),
           select: {
             id: true,
@@ -1505,7 +1505,7 @@ async function loadSessionTrades(sessionId: string, mode: string, take?: number)
       ? Promise.resolve([])
       : prisma.paperTrade.findMany({
           where: { sessionId },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
            ...(take ? { take } : {}),
           select: {
             id: true,
@@ -1562,7 +1562,7 @@ export async function getDashboardData(
   const selectedEventsPromise: Promise<{ events: EventLite[]; hasMore: boolean }> = selectedSessionId
     ? prisma.tradeAnalyticsEvent.findMany({
         where: eventWhere(filters),
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         ...(selectedEventLimit ? { take: selectedEventLimit + 1 } : {}),
         select: {
           id: true,
@@ -1600,7 +1600,7 @@ export async function getDashboardData(
       })
         .then((events) => {
           const hasMore = selectedEventLimit !== undefined && events.length > selectedEventLimit;
-          const loadedEvents = hasMore ? events.slice(0, -1) : events;
+          const loadedEvents = (hasMore ? events.slice(0, -1) : events).reverse();
           console.info("[dashboard-events] session loaded", {
             selectedSessionId,
             count: loadedEvents.length,

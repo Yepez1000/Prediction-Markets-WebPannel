@@ -1156,7 +1156,7 @@ async function loadSessionComparison(
 
   const rawEvents = await prisma.tradeAnalyticsEvent.findMany({
     where: { sessionId },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     ...(historyScope.limit ? { take: historyScope.limit + 1 } : {}),
     select: {
       createdAt: true,
@@ -1179,7 +1179,7 @@ async function loadSessionComparison(
     }
   });
   const hasMoreEvents = historyScope.limit !== undefined && rawEvents.length > historyScope.limit;
-  const loadedEvents = hasMoreEvents ? rawEvents.slice(0, -1) : rawEvents;
+  const loadedEvents = (hasMoreEvents ? rawEvents.slice(0, -1) : rawEvents).reverse();
   const events = await hydrateMissingConditionIds(
     loadedEvents.filter(
       (event) =>
@@ -1224,7 +1224,7 @@ async function loadSessionComparison(
       resolutions.warning,
       priceHistory.warning,
       hasMoreEvents
-        ? `Comparison uses the first ${loadedEvents.length.toLocaleString()} session events. Load more history for a complete comparison.`
+        ? `Comparison uses the most recent ${loadedEvents.length.toLocaleString()} session events. Load more history for a complete comparison.`
         : undefined,
       priceHistory.value.size === 0 ? "Historical prices were unavailable; fill prices are used as fallback marks." : undefined
     ].filter((warning): warning is string => Boolean(warning));

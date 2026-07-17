@@ -79,7 +79,7 @@ export async function SessionComparison({
             <div className="rounded-md border border-caution/20 bg-caution/5 px-3 py-2 text-xs text-caution">
               {[
                 ...(comparison.historyComplete === false
-                  ? [`Comparison uses the first ${(comparison.loadedEventCount ?? 0).toLocaleString()} session events.`]
+                  ? [`Comparison uses the most recent ${(comparison.loadedEventCount ?? 0).toLocaleString()} session events.`]
                   : []),
                 ...comparison.warnings,
                 ...(comparison.truncated ? ["Polymarket pagination reached its 10,000-offset limit; results are partial."] : [])
