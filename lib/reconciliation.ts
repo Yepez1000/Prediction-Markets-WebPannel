@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getPrisma } from "@/lib/prisma";
+import { sessionHistoryScope } from "@/lib/session-history";
 import {
   getBatchPriceHistory,
   getClosedPositions,
@@ -40,7 +41,8 @@ const comparisonCache = new Map<string, ComparisonCacheEntry>();
 function comparisonCacheKey(sessionId: string, filters: DashboardFilters) {
   const sourceScope = filters.sourceScope === "wallet" ? "wallet" : "matched";
   const unit = filters.pnlUnit === "usd" ? "usd" : "percent";
-  return `${sessionId}:${sourceScope}:${unit}`;
+  const history = sessionHistoryScope(filters);
+  return `${sessionId}:${sourceScope}:${unit}:${history.isFull ? "all" : history.limit}`;
 }
 
 function pruneComparisonCache(now: number) {
@@ -765,6 +767,8 @@ export function reconcileSession(input: {
   resolutions?: MarketResolutionMap;
   truncated?: boolean;
   warnings?: string[];
+  loadedEventCount?: number;
+  historyComplete?: boolean;
 }): SessionComparison {
   const local = buildLocalPositions(input.events);
   const localConditionIds = new Set(Array.from(local.values()).map((position) => position.conditionId));
@@ -1079,7 +1083,9 @@ export function reconcileSession(input: {
       factors
     },
     warnings,
-    truncated: Boolean(input.truncated)
+    truncated: Boolean(input.truncated),
+    loadedEventCount: input.loadedEventCount,
+    historyComplete: input.historyComplete
   };
 }
 
@@ -1118,17 +1124,21 @@ async function loadSessionComparison(
     }
   });
   if (!session?.sourceWallet) return undefined;
+  const sourceWallet = session.sourceWallet;
   const comparisonStartedAt = performance.now();
   const endedAt = session.endedAt ?? session.lastEventAt ?? new Date();
   const sourceScope = filters.sourceScope === "wallet" ? "wallet" : "matched";
   const unit = filters.pnlUnit === "usd" ? "usd" : "percent";
+  const historyScope = sessionHistoryScope(filters);
   const maxCacheAgeMs = reconciliationCacheMaxAgeMs(session);
-  const cached = await getCachedReconciliation({
-    sessionId,
-    sourceScope,
-    unit,
-    maxAgeMs: maxCacheAgeMs
-  });
+  const cached = historyScope.isFull
+    ? await getCachedReconciliation({
+        sessionId,
+        sourceScope,
+        unit,
+        maxAgeMs: maxCacheAgeMs
+      })
+    : undefined;
   if (cached) {
     console.info("[reconciliation-cache] hit", {
       sessionId,
@@ -1145,12 +1155,9 @@ async function loadSessionComparison(
     ? sizingSnapshot.computed_pct : undefined;
 
   const rawEvents = await prisma.tradeAnalyticsEvent.findMany({
-    where: {
-      sessionId,
-      eventType: { in: ["order_fill", "fractional_fak_fill", "market_resolution"] },
-      status: { in: ["FILLED", "PARTIAL", "RESOLVED"] }
-    },
+    where: { sessionId },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    ...(historyScope.limit ? { take: historyScope.limit + 1 } : {}),
     select: {
       createdAt: true,
       eventType: true,
@@ -1171,7 +1178,15 @@ async function loadSessionComparison(
       contextJson: true
     }
   });
-  const events = await hydrateMissingConditionIds(rawEvents);
+  const hasMoreEvents = historyScope.limit !== undefined && rawEvents.length > historyScope.limit;
+  const loadedEvents = hasMoreEvents ? rawEvents.slice(0, -1) : rawEvents;
+  const events = await hydrateMissingConditionIds(
+    loadedEvents.filter(
+      (event) =>
+        ["order_fill", "fractional_fak_fill", "market_resolution"].includes(event.eventType) &&
+        ["FILLED", "PARTIAL", "RESOLVED"].includes(event.status)
+    )
+  );
   const conditionIds = Array.from(new Set(events.flatMap((event) => event.conditionId ? [event.conditionId] : [])));
   const assets = Array.from(new Set(events.flatMap((event) => event.clobTokenId ? [event.clobTokenId] : [])));
   if (conditionIds.length === 0) return undefined;
@@ -1183,12 +1198,12 @@ async function loadSessionComparison(
     const externalStartedAt = performance.now();
     // Activity is the required source of truth. The remaining calls enrich the
     // comparison and must not hide a useful activity-derived result.
-    const activity = await getWalletActivity({ user: session.sourceWallet, start, end, conditionIds });
+    const activity = await getWalletActivity({ user: sourceWallet, start, end, conditionIds });
     const [current, closed, nativePnl, resolutions] = await Promise.all([
-      loadOptional("current positions", { rows: [] as PolymarketPosition[], truncated: false }, () => getCurrentPositions(session.sourceWallet, conditionIds)),
-      loadOptional("closed positions", { rows: [] as PolymarketPosition[], truncated: false }, () => getClosedPositions(session.sourceWallet, conditionIds)),
+      loadOptional("current positions", { rows: [] as PolymarketPosition[], truncated: false }, () => getCurrentPositions(sourceWallet, conditionIds)),
+      loadOptional("closed positions", { rows: [] as PolymarketPosition[], truncated: false }, () => getClosedPositions(sourceWallet, conditionIds)),
       sourceScope === "wallet"
-        ? loadOptional("native wallet PnL", [] as PolymarketPnlPoint[], () => getNativePnl(session.sourceWallet, "all"))
+        ? loadOptional("native wallet PnL", [] as PolymarketPnlPoint[], () => getNativePnl(sourceWallet, "all"))
         : Promise.resolve<OptionalSource<PolymarketPnlPoint[]>>({ value: [] }),
       getResolutionMap(conditionIds)
     ]);
@@ -1208,6 +1223,9 @@ async function loadSessionComparison(
       nativePnl.warning,
       resolutions.warning,
       priceHistory.warning,
+      hasMoreEvents
+        ? `Comparison uses the first ${loadedEvents.length.toLocaleString()} session events. Load more history for a complete comparison.`
+        : undefined,
       priceHistory.value.size === 0 ? "Historical prices were unavailable; fill prices are used as fallback marks." : undefined
     ].filter((warning): warning is string => Boolean(warning));
     const reconcileStartedAt = performance.now();
@@ -1229,7 +1247,9 @@ async function loadSessionComparison(
       allSourcePositions: [...current.value.rows, ...closed.value.rows],
       resolutions: resolutions.value,
       truncated: activity.truncated || current.value.truncated || closed.value.truncated,
-      warnings
+      warnings,
+      loadedEventCount: loadedEvents.length,
+      historyComplete: !hasMoreEvents
     });
     console.info("[reconciliation] fresh", {
       sessionId,
@@ -1250,9 +1270,11 @@ async function loadSessionComparison(
       reconcileMs: Math.round(reconcileMs),
       totalMs: Math.round(performance.now() - loadStartedAt)
     });
-    persistReconciliation(result).catch((err) => {
-      console.error("Failed to persist reconciliation:", err);
-    });
+    if (historyScope.isFull) {
+      persistReconciliation(result).catch((err) => {
+        console.error("Failed to persist reconciliation:", err);
+      });
+    }
     return result;
   } catch (error) {
     return {
@@ -1283,6 +1305,8 @@ async function loadSessionComparison(
       },
       warnings: [],
       truncated: false,
+      loadedEventCount: loadedEvents.length,
+      historyComplete: !hasMoreEvents,
       error: error instanceof Error ? error.message : "Unable to load wallet comparison."
     };
   }

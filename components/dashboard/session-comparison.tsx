@@ -75,9 +75,15 @@ export async function SessionComparison({
           </div>
           <ComparisonChart points={series} unit={comparison.unit} />
           <ReturnDerivation comparison={comparison} />
-          {comparison.warnings.length || comparison.truncated ? (
+          {comparison.historyComplete === false || comparison.warnings.length || comparison.truncated ? (
             <div className="rounded-md border border-caution/20 bg-caution/5 px-3 py-2 text-xs text-caution">
-              {[...comparison.warnings, ...(comparison.truncated ? ["Polymarket pagination reached its 10,000-offset limit; results are partial."] : [])].join(" ")}
+              {[
+                ...(comparison.historyComplete === false
+                  ? [`Comparison uses the first ${(comparison.loadedEventCount ?? 0).toLocaleString()} session events.`]
+                  : []),
+                ...comparison.warnings,
+                ...(comparison.truncated ? ["Polymarket pagination reached its 10,000-offset limit; results are partial."] : [])
+              ].join(" ")}
             </div>
           ) : null}
           <div className="rounded-md border border-border bg-background/40 p-3">

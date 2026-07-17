@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { DeploymentGrid } from "@/components/dashboard/deployment-grid";
 import { FilterBar } from "@/components/dashboard/filter-bar";
+import { HistoryControls } from "@/components/dashboard/history-controls";
 import { SessionDetail } from "@/components/dashboard/session-detail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -76,8 +77,21 @@ export function Dashboard({
           sessions={data.sessions}
           filters={filters}
         />
-        {selectedSession ? <SectionNav hasSizing={Boolean(selectedSession.sizing)} hasComparison={Boolean(comparison)} /> : null}
-        <SessionDetail session={selectedSession} evidence={data.evidence} />
+        {selectedSession ? (
+          <SectionNav
+            hasSizing={Boolean(selectedSession.sizing)}
+            hasComparison={Boolean(comparison)}
+            loadedEventCount={data.loadedSessionEventCount}
+            totalEventCount={data.totalSessionEventCount}
+            hasMoreEvents={data.hasMoreSessionEvents}
+          />
+        ) : null}
+        <SessionDetail
+          session={selectedSession}
+          evidence={data.evidence}
+          loadedEventCount={data.loadedSessionEventCount}
+          hasMoreEvents={data.hasMoreSessionEvents}
+        />
         {comparison}
         <footer className="pb-4 text-xs text-muted-foreground">
           Last read {new Date(data.updatedAt).toLocaleString()}. Read-only.
@@ -89,10 +103,16 @@ export function Dashboard({
 
 function SectionNav({
   hasSizing,
-  hasComparison
+  hasComparison,
+  loadedEventCount,
+  totalEventCount,
+  hasMoreEvents
 }: {
   hasSizing: boolean;
   hasComparison: boolean;
+  loadedEventCount?: number;
+  totalEventCount?: number;
+  hasMoreEvents?: boolean;
 }) {
   const links = [
     ["Overview", "#session-overview"],
@@ -104,16 +124,23 @@ function SectionNav({
 
   return (
     <nav className="sticky top-0 z-20 -mx-4 border-y border-border bg-background/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6" aria-label="Session sections">
-      <div className="flex gap-2 overflow-x-auto text-xs">
-        {links.map(([label, href]) => (
-          <Link
-            key={href}
-            href={href}
-            className="shrink-0 rounded-full border border-border bg-muted/30 px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-          >
-            {label}
-          </Link>
-        ))}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="flex min-w-0 gap-2 overflow-x-auto">
+          {links.map(([label, href]) => (
+            <Link
+              key={href}
+              href={href}
+              className="shrink-0 rounded-full border border-border bg-muted/30 px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
+        <HistoryControls
+          loadedEventCount={loadedEventCount}
+          totalEventCount={totalEventCount}
+          hasMoreEvents={hasMoreEvents}
+        />
       </div>
     </nav>
   );

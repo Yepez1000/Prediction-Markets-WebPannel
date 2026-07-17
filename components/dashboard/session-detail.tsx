@@ -20,10 +20,14 @@ import { formatCurrency, formatPercent, shortWallet } from "@/lib/utils";
 
 export function SessionDetail({
   session,
-  evidence
+  evidence,
+  loadedEventCount,
+  hasMoreEvents
 }: {
   session?: SessionSummary;
   evidence: RecentEvidence[];
+  loadedEventCount?: number;
+  hasMoreEvents?: boolean;
 }) {
   if (!session) return null;
 
@@ -171,9 +175,6 @@ export function SessionDetail({
               ["Downside deviation", formatCurrency(session.downsideDeviation)],
               ["Worst market", session.worstMarket ?? "n/a"],
               ["Worst market PnL", formatCurrency(session.worstMarketPnl)],
-              ["Worst 5m window", formatCurrency(session.worstFiveMinuteWindow)],
-              ["Worst 15m window", formatCurrency(session.worstFifteenMinuteWindow)],
-              ["Worst 1h window", formatCurrency(session.worstOneHourWindow)],
               ["Consecutive wins", session.consecutiveWins.toString()],
               ["Consecutive losses", session.consecutiveLosses.toString()]
             ]}
@@ -218,6 +219,14 @@ export function SessionDetail({
       <section id="evidence" className="scroll-mt-16">
         <EvidenceTable evidence={evidence} />
       </section>
+      {loadedEventCount !== undefined ? (
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-muted/20 p-3">
+          <p className="text-sm text-muted-foreground">
+            Loaded {loadedEventCount.toLocaleString()} session events.
+            {hasMoreEvents ? " Overview and reconciliation use this same history." : " All session events are loaded."}
+          </p>
+        </section>
+      ) : null}
     </section>
   );
 }

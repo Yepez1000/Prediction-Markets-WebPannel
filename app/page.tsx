@@ -42,7 +42,10 @@ export default async function Home({
     deploymentSort: readParam(params, "deploymentSort") as DashboardFilters["deploymentSort"],
     deploymentDirection: readParam(params, "deploymentDirection") as DashboardFilters["deploymentDirection"],
     sessionSort: readParam(params, "sessionSort") as DashboardFilters["sessionSort"],
-    sessionDirection: readParam(params, "sessionDirection") as DashboardFilters["sessionDirection"]
+    sessionDirection: readParam(params, "sessionDirection") as DashboardFilters["sessionDirection"],
+    tradePage: readParam(params, "tradePage"),
+    tradeLimit: readParam(params, "tradeLimit"),
+    history: readParam(params, "history") as DashboardFilters["history"]
   };
 
   const sessionId = filters.session && filters.session !== "all" ? filters.session : undefined;

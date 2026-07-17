@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { getPrisma } from "@/lib/prisma";
+import { sessionHistoryScope } from "@/lib/session-history";
 import type {
   BreakdownItem,
   DashboardData,
@@ -547,9 +548,6 @@ function baseSummary(input: {
     averagePnlPerResolvedMarket: 0,
     maxIntradayDrawdown: 0,
     worstMarketPnl: 0,
-    worstFiveMinuteWindow: 0,
-    worstFifteenMinuteWindow: 0,
-    worstOneHourWindow: 0,
     pnlVolatility: 0,
     downsideDeviation: 0,
     expectancyPerTrade: 0,
@@ -1003,21 +1001,6 @@ function scoreBucket(value: number | undefined) {
   return "0.75-1";
 }
 
-function worstWindow(points: PnlPoint[], minutes: number) {
-  let worst = 0;
-  for (let start = 0; start < points.length; start += 1) {
-    const startTime = new Date(points[start].when).getTime();
-    let delta = 0;
-    for (let index = start; index < points.length; index += 1) {
-      const time = new Date(points[index].when).getTime();
-      if (time - startTime > minutes * 60_000) break;
-      delta += points[index].delta;
-    }
-    worst = Math.min(worst, delta);
-  }
-  return worst;
-}
-
 function applyLifecycleMetrics(
   summary: MutableSummary & Partial<SessionSummary>,
   metrics: LifecycleMetrics,
@@ -1054,9 +1037,6 @@ function applyLifecycleMetrics(
   summary.maxIntradayDrawdown = metrics.maxDrawdown;
   summary.worstMarket = metrics.worstMarket;
   summary.worstMarketPnl = metrics.worstMarketPnl;
-  summary.worstFiveMinuteWindow = worstWindow(metrics.pnlSeries, 5);
-  summary.worstFifteenMinuteWindow = worstWindow(metrics.pnlSeries, 15);
-  summary.worstOneHourWindow = worstWindow(metrics.pnlSeries, 60);
   summary.pnlVolatility = metrics.pnlVolatility;
   summary.downsideDeviation = metrics.downsideDeviation;
   summary.maxCapitalDeployed = metrics.maxCapitalDeployed;
@@ -1496,7 +1476,7 @@ function applyOverviewMetric(summary: MutableSummary, metric: OverviewMetricRow)
   summary.lastTradeAt = metric.lastTradeAt?.toISOString() ?? summary.lastTradeAt;
 }
 
-async function loadSessionTrades(sessionId: string, mode: string) {
+async function loadSessionTrades(sessionId: string, mode: string, take?: number) {
   const prisma = getPrisma();
   const [liveTrades, paperTrades] = await Promise.all([
     mode === "paper"
@@ -1504,7 +1484,7 @@ async function loadSessionTrades(sessionId: string, mode: string) {
       : prisma.trade.findMany({
           where: { sessionId },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          take: 1000,
+           ...(take ? { take } : {}),
           select: {
             id: true,
             marketId: true,
@@ -1526,7 +1506,7 @@ async function loadSessionTrades(sessionId: string, mode: string) {
       : prisma.paperTrade.findMany({
           where: { sessionId },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          take: 1000,
+           ...(take ? { take } : {}),
           select: {
             id: true,
             marketId: true,
@@ -1577,10 +1557,13 @@ export async function getDashboardData(
   const mode = selectedMode(filters);
   const selectedSessionId =
     filters.session && filters.session !== "all" ? filters.session : undefined;
-  const selectedEventsPromise: Promise<EventLite[]> = selectedSessionId
+  const historyScope = sessionHistoryScope(filters);
+  const selectedEventLimit = historyScope.limit;
+  const selectedEventsPromise: Promise<{ events: EventLite[]; hasMore: boolean }> = selectedSessionId
     ? prisma.tradeAnalyticsEvent.findMany({
         where: eventWhere(filters),
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        ...(selectedEventLimit ? { take: selectedEventLimit + 1 } : {}),
         select: {
           id: true,
           createdAt: true,
@@ -1616,17 +1599,26 @@ export async function getDashboardData(
         }
       })
         .then((events) => {
-          console.info("[dashboard-events] session loaded", { selectedSessionId, count: events.length });
-          return events as EventLite[];
+          const hasMore = selectedEventLimit !== undefined && events.length > selectedEventLimit;
+          const loadedEvents = hasMore ? events.slice(0, -1) : events;
+          console.info("[dashboard-events] session loaded", {
+            selectedSessionId,
+            count: loadedEvents.length,
+            hasMore
+          });
+          return { events: loadedEvents as EventLite[], hasMore };
         })
         .catch((error) => {
           console.warn("[dashboard-events] session load unavailable", {
             selectedSessionId,
             message: error instanceof Error ? error.message : String(error)
           });
-          return [];
+          return { events: [], hasMore: false };
         })
-    : Promise.resolve([]);
+    : Promise.resolve({ events: [], hasMore: false });
+  const selectedEventCountPromise = selectedSessionId
+    ? prisma.tradeAnalyticsEvent.count({ where: eventWhere(filters) })
+    : Promise.resolve(undefined);
   const overviewMetricsPromise: Promise<OverviewMetricRow[]> = selectedSessionId
     ? Promise.resolve([])
     : loadOverviewMetrics(filters, [], []);
@@ -1713,8 +1705,13 @@ export async function getDashboardData(
     ] as string[]);
     const eventReadStartedAt = performance.now();
     let summaryEvents: EventLite[];
+    let hasMoreSessionEvents = false;
+    let totalSessionEventCount: number | undefined;
     if (selectedSessionId) {
-      summaryEvents = await selectedEventsPromise;
+      const loadedEvents = await selectedEventsPromise;
+      summaryEvents = loadedEvents.events;
+      hasMoreSessionEvents = loadedEvents.hasMore;
+      totalSessionEventCount = await selectedEventCountPromise;
     } else {
       summaryEvents = [];
     }
@@ -1852,7 +1849,7 @@ export async function getDashboardData(
 
     let selectedTrades: TradeLite[] = [];
     if (selectedSessionId && sessionMap.has(selectedSessionId)) {
-      selectedTrades = await loadSessionTrades(selectedSessionId, mode);
+      selectedTrades = await loadSessionTrades(selectedSessionId, mode, selectedEventLimit);
       const session = sessionMap.get(selectedSessionId)!;
       if (selectedTrades.length > 0 && session.marketPositions.length === 0) {
         session.netPnl = 0;
@@ -1942,6 +1939,14 @@ export async function getDashboardData(
       wallets: [],
       strategies: [],
       evidence,
+      ...(selectedSessionId
+        ? {
+            loadedSessionEventCount: summaryEvents.length,
+            totalSessionEventCount,
+            hasMoreSessionEvents,
+            sessionHistoryComplete: !hasMoreSessionEvents
+          }
+        : {}),
       filters: {
         strategies: optionList([
           ...deploymentRows.map(

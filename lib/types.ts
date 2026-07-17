@@ -17,6 +17,9 @@ export type DashboardFilters = {
   deploymentDirection?: "asc" | "desc";
   sessionSort?: "date" | "name" | "pnl" | "winRate" | "trades";
   sessionDirection?: "asc" | "desc";
+  tradePage?: string;
+  tradeLimit?: string;
+  history?: "all";
 };
 
 export type RuntimeMode = "paper" | "live";
@@ -113,9 +116,6 @@ export type DeploymentSummary = {
   maxIntradayDrawdown: number;
   worstMarket?: string;
   worstMarketPnl: number;
-  worstFiveMinuteWindow: number;
-  worstFifteenMinuteWindow: number;
-  worstOneHourWindow: number;
   pnlVolatility: number;
   downsideDeviation: number;
   expectancyPerTrade: number;
@@ -365,6 +365,8 @@ export type SessionComparison = {
   summary: ComparisonSummary;
   warnings: string[];
   truncated: boolean;
+  loadedEventCount?: number;
+  historyComplete?: boolean;
   error?: string;
 };
 
@@ -403,6 +405,10 @@ export type DashboardData = {
   wallets: WalletSummary[];
   strategies: StrategySummary[];
   evidence: RecentEvidence[];
+  loadedSessionEventCount?: number;
+  totalSessionEventCount?: number;
+  hasMoreSessionEvents?: boolean;
+  sessionHistoryComplete?: boolean;
   filters: FilterOptions;
   updatedAt: string;
 };
