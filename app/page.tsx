@@ -25,7 +25,7 @@ export default async function Home({
 }) {
   const params = await searchParams;
   const filters: DashboardFilters = {
-    mode: readParam(params, "mode") ?? "paper",
+    mode: readParam(params, "mode") ?? "all",
     strategy: readParam(params, "strategy"),
     deployment: readParam(params, "deployment"),
     instance: readParam(params, "instance"),

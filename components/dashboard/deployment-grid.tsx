@@ -120,7 +120,7 @@ export function DeploymentGrid({
           <CardDescription>
             {selectedDeployment
               ? `Attached to ${selectedDeployment.label}.`
-              : "Recent standalone and deployment-attached sessions."}
+                : "Recent standalone sessions."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -128,16 +128,17 @@ export function DeploymentGrid({
             <EmptyState message="No sessions match the current filters." />
           ) : (
             <div className="overflow-hidden rounded-md border border-border">
-              <div className="hidden grid-cols-[minmax(0,1fr)_150px_120px_100px_90px_86px] items-center border-b border-border bg-muted/20 px-3 py-1 md:grid">
+              <div className="hidden grid-cols-[minmax(0,1fr)_150px_120px_100px_90px_90px_86px] items-center border-b border-border bg-muted/20 px-3 py-1 md:grid">
                 <SortHeader label="Session" value="name" filters={filters} />
                 <SortHeader label="Started" value="date" filters={filters} />
                 <SortHeader label="PnL" value="pnl" filters={filters} align="right" />
                 <SortHeader label="Win rate" value="winRate" filters={filters} align="right" />
                 <SortHeader label="Trades" value="trades" filters={filters} align="right" />
+                <span className="px-2 text-right text-xs font-medium text-muted-foreground">Sharpe</span>
                 <span className="px-2 text-xs font-medium text-muted-foreground">Mode</span>
               </div>
               <div className="divide-y divide-border">
-                {sessions.slice(0, 30).map((session) => (
+                {sessions.map((session) => (
                   <SessionRow
                     key={session.sessionId}
                     session={session}
@@ -320,7 +321,7 @@ function DeploymentSortHeader({
   value: NonNullable<DashboardFilters["deploymentSort"]>;
   filters: DashboardFilters;
 }) {
-  const active = (filters.deploymentSort ?? "pnl") === value;
+  const active = (filters.deploymentSort ?? "date") === value;
   const currentDirection = filters.deploymentDirection ?? "desc";
   const nextDirection = active && currentDirection === "desc" ? "asc" : "desc";
   const Icon = active
@@ -354,7 +355,7 @@ function SessionRow({
 }) {
   return (
     <div className="bg-card px-3 py-2 hover:bg-muted/30">
-      <Link href={href} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_150px_120px_100px_90px_86px] md:items-center">
+      <Link href={href} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_150px_120px_100px_90px_90px_86px] md:items-center">
         <RunName
           icon={<PlayCircle className="size-4 text-primary" />}
           title={session.label}
@@ -369,6 +370,9 @@ function SessionRow({
         </span>
         <span className="text-right font-mono text-sm tabular-nums">
           {session.trades}
+        </span>
+        <span className="text-right font-mono text-sm tabular-nums">
+          {session.sharpeRatio.toFixed(2)}
         </span>
         <Badge variant={session.mode === "paper" ? "secondary" : "caution"}>
           {session.mode}

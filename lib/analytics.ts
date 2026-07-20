@@ -187,6 +187,7 @@ type OverviewMetricRow = {
   markets: number;
   wins: number;
   losses: number;
+  sharpeRatio: number;
   lastTradeAt: Date | null;
 };
 
@@ -367,7 +368,7 @@ function parseSizingSnapshot(json: string | null | undefined): PortfolioSizingSn
 }
 
 function selectedMode(filters: DashboardFilters) {
-  return filters.mode ?? "paper";
+  return filters.mode ?? "all";
 }
 
 function dateRange(filters: DashboardFilters) {
@@ -1325,6 +1326,8 @@ function eventWhere(filters: DashboardFilters) {
 
 function sessionWhere(filters: DashboardFilters) {
   const mode = selectedMode(filters);
+  const hasSelectedDeployment = Boolean(filters.deployment && filters.deployment !== "all");
+  const hasSelectedSession = Boolean(filters.session && filters.session !== "all");
   return {
     ...(mode === "all" ? {} : { mode }),
     ...(filters.strategy && filters.strategy !== "all"
@@ -1335,6 +1338,9 @@ function sessionWhere(filters: DashboardFilters) {
       : {}),
     ...(filters.session && filters.session !== "all"
       ? { sessionId: filters.session }
+      : {}),
+    ...(!hasSelectedDeployment && !hasSelectedSession
+      ? { deploymentId: null, deploymentKey: null }
       : {}),
     ...(filters.wallet
       ? { sourceWallet: { contains: filters.wallet, mode: "insensitive" as const } }
@@ -1426,6 +1432,16 @@ async function loadOverviewMetrics(
         COUNT(*)::int AS markets,
         COUNT(*) FILTER (WHERE ABS(open_shares) < 1e-9 AND sell_proceeds - buy_cost > 0)::int AS wins,
         COUNT(*) FILTER (WHERE ABS(open_shares) < 1e-9 AND sell_proceeds - buy_cost < 0)::int AS losses,
+        CASE
+          WHEN COUNT(*) FILTER (WHERE ABS(open_shares) < 1e-9) < 2 THEN 0
+          WHEN COALESCE(
+            STDDEV_SAMP(sell_proceeds - buy_cost) FILTER (WHERE ABS(open_shares) < 1e-9),
+            0
+          ) = 0 THEN 0
+          ELSE AVG(sell_proceeds - buy_cost) FILTER (WHERE ABS(open_shares) < 1e-9) /
+            STDDEV_SAMP(sell_proceeds - buy_cost) FILTER (WHERE ABS(open_shares) < 1e-9) *
+            SQRT((COUNT(*) FILTER (WHERE ABS(open_shares) < 1e-9))::double precision)
+        END::double precision AS sharpe_ratio,
         MAX(last_trade_at) AS last_trade_at
       FROM position_rollup
       WHERE session_id IS NOT NULL
@@ -1441,18 +1457,28 @@ async function loadOverviewMetrics(
         COUNT(*)::int AS markets,
         COUNT(*) FILTER (WHERE ABS(open_shares) < 1e-9 AND sell_proceeds - buy_cost > 0)::int AS wins,
         COUNT(*) FILTER (WHERE ABS(open_shares) < 1e-9 AND sell_proceeds - buy_cost < 0)::int AS losses,
+        CASE
+          WHEN COUNT(*) FILTER (WHERE ABS(open_shares) < 1e-9) < 2 THEN 0
+          WHEN COALESCE(
+            STDDEV_SAMP(sell_proceeds - buy_cost) FILTER (WHERE ABS(open_shares) < 1e-9),
+            0
+          ) = 0 THEN 0
+          ELSE AVG(sell_proceeds - buy_cost) FILTER (WHERE ABS(open_shares) < 1e-9) /
+            STDDEV_SAMP(sell_proceeds - buy_cost) FILTER (WHERE ABS(open_shares) < 1e-9) *
+            SQRT((COUNT(*) FILTER (WHERE ABS(open_shares) < 1e-9))::double precision)
+        END::double precision AS sharpe_ratio,
         MAX(last_trade_at) AS last_trade_at
       FROM position_rollup
       WHERE deployment_key IS NOT NULL
       GROUP BY deployment_key
     )
     SELECT kind, id, total_pnl AS "totalPnl", fees, trades,
-      total_volume AS "totalVolume", markets, wins, losses,
+      total_volume AS "totalVolume", markets, wins, losses, sharpe_ratio AS "sharpeRatio",
       last_trade_at AS "lastTradeAt"
     FROM session_rollup
     UNION ALL
     SELECT kind, id, total_pnl AS "totalPnl", fees, trades,
-      total_volume AS "totalVolume", markets, wins, losses,
+      total_volume AS "totalVolume", markets, wins, losses, sharpe_ratio AS "sharpeRatio",
       last_trade_at AS "lastTradeAt"
     FROM deployment_rollup
   `);
@@ -1473,6 +1499,7 @@ function applyOverviewMetric(summary: MutableSummary, metric: OverviewMetricRow)
   summary.resolvedMarkets = metric.wins + metric.losses;
   summary.wins = metric.wins;
   summary.losses = metric.losses;
+  summary.sharpeRatio = metric.sharpeRatio;
   summary.lastTradeAt = metric.lastTradeAt?.toISOString() ?? summary.lastTradeAt;
 }
 
@@ -1881,7 +1908,7 @@ export async function getDashboardData(
         return stripMutable(finalizeSummary(deployment)) as DeploymentSummary;
       })
       .sort((a, b) => {
-        const sort = filters.deploymentSort ?? "pnl";
+        const sort = filters.deploymentSort ?? "date";
         const direction = filters.deploymentDirection ?? "desc";
         const multiplier = direction === "asc" ? 1 : -1;
         if (sort === "date") {

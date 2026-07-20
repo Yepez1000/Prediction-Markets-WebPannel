@@ -49,7 +49,7 @@ export function FilterBar({
           <div className="mt-3 grid gap-2 md:grid-cols-4">
             <Select
               name="mode"
-              defaultValue={filters.mode ?? "paper"}
+              defaultValue={filters.mode ?? "all"}
               aria-label="Mode"
               options={[
                 { label: "Paper", value: "paper" },
