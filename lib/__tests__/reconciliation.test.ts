@@ -163,6 +163,23 @@ describe("session reconciliation", () => {
     expect(result.positions[0].ourFillTime).toBe("2026-06-26T10:00:09.750Z");
   });
 
+  it("averages signal-to-order seconds across buy fills for one asset", () => {
+    const first = event({
+      createdAt: new Date("2026-06-26T10:00:10Z"),
+      contextJson: JSON.stringify({ signal_to_order_seconds: 10, target_local_shares: 10 })
+    });
+    const second = event({
+      createdAt: new Date("2026-06-26T10:00:20Z"),
+      filledShares: 5,
+      heldAfter: 15,
+      contextJson: JSON.stringify({ signal_to_order_seconds: 20, target_local_shares: 15 })
+    });
+    const result = reconcile({ events: [first, second] });
+
+    expect(result.positions[0].entryLagSeconds).toBe(15);
+    expect(result.positions[0].entryLagMs).toBe(15_000);
+  });
+
   it("marks a partial fill against the requested local size", () => {
     const result = reconcile({ events: [event({ filledShares: 4, heldAfter: 4 })] });
     expect(result.positions[0].verdict).toBe("partial");

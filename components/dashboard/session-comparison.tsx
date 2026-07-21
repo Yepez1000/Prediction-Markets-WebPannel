@@ -70,7 +70,7 @@ export async function SessionComparison({
             <Stat label="PnL gap ($)" value={formatCurrency(absPnlGap)} tone={absPnlGap >= 0 ? "profit" : "loss"} />
             <Stat label="Matched" value={comparison.summary.matchedPositions.toString()} />
             <Stat label="Source only" value={comparison.summary.sourceOnlyPositions.toString()} tone={comparison.summary.sourceOnlyPositions ? "caution" : undefined} />
-            <Stat label="Median entry lag" value={formatDuration(comparison.summary.medianEntryLagSeconds)} />
+            <Stat label="Median signal → order" value={formatDuration(comparison.summary.medianEntryLagSeconds)} />
             <Stat label="Median exit lag" value={formatDuration(comparison.summary.medianExitLagSeconds)} />
           </div>
           <ComparisonChart points={series} unit={comparison.unit} />
@@ -278,7 +278,7 @@ function PricePair({
 
 function LagSeconds({ value }: { value?: number }) {
   if (value === undefined || !Number.isFinite(value)) return null;
-  return <div className="mt-0.5 text-[10px] text-muted-foreground">lag {value >= 0 ? "+" : ""}{value.toFixed(1)}s</div>;
+  return <div className="mt-0.5 text-[10px] text-muted-foreground">avg signal → order {value >= 0 ? "+" : ""}{value.toFixed(1)}s</div>;
 }
 
 function LifecycleOffset({ value }: { value?: number }) {

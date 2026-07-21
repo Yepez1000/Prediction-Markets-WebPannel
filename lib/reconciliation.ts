@@ -124,6 +124,7 @@ type LocalPosition = {
   entry?: ComparisonEvent;
   exit?: ComparisonEvent;
   fees: number;
+  signalToOrderSeconds: number[];
 };
 
 type PortfolioFill = {
@@ -234,6 +235,21 @@ function median(values: number[]) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+function average(values: number[]) {
+  return values.length === 0
+    ? undefined
+    : values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function signalToOrderSeconds(event: ComparisonEvent) {
+  const explicit = contextNumber(event, "signal_to_order_seconds");
+  if (explicit !== undefined && explicit >= 0) return explicit;
+  const observedAt = contextDate(event, "signal_observed_at");
+  if (!observedAt) return undefined;
+  const seconds = (eventDate(event).getTime() - observedAt.getTime()) / 1000;
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
+}
+
 
 function avgEntry(rows: PolymarketActivity[]) {
   const buys = rows.filter((r) => r.type === "TRADE" && r.side === "BUY");
@@ -337,7 +353,8 @@ function buildLocalPositions(events: ComparisonEvent[]) {
       sellProceeds: 0,
       realizedPnl: 0,
       costBasis: 0,
-      fees: 0
+      fees: 0,
+      signalToOrderSeconds: []
     };
     const fee = Math.abs(number(event.fee));
     const cash = number(event.grossCash) || shares * number(event.price);
@@ -356,6 +373,8 @@ function buildLocalPositions(events: ComparisonEvent[]) {
         contextNumber(event, "target_local_shares") ?? 0
       );
       position.entry ??= event;
+      const signalToOrder = signalToOrderSeconds(event);
+      if (signalToOrder !== undefined) position.signalToOrderSeconds.push(signalToOrder);
       position.current += shares;
       position.peakShares = Math.max(position.peakShares, position.current);
       position.buyCash += cash;
@@ -810,11 +829,7 @@ export function reconcileSession(input: {
     } else if (expected > 0 && position.current > expected * 1.01) {
       verdict = "overfilled";
     }
-    const directEntryLag = position.entry
-      ? contextNumber(position.entry, "source_event_to_fill_seconds")
-      ?? contextNumber(position.entry, "signal_to_order_seconds")
-      : undefined;
-    const entryLagSeconds = directEntryLag;
+    const entryLagSeconds = average(position.signalToOrderSeconds);
     const ourCostBasis = position.costBasis > 0 ? position.costBasis : position.buyCost;
     const ourReturnPct = ourCostBasis > 0 ? (position.realizedPnl / ourCostBasis) * 100 : undefined;
     const sourceCostBasis = sourcePos?.avgPrice && sourcePos.avgPrice > 0
