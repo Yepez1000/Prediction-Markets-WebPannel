@@ -79,7 +79,7 @@ export function Dashboard({
         />
         {selectedSession ? (
           <SectionNav
-            hasSizing={Boolean(selectedSession.sizing)}
+            hasSizing={selectedSession.sizingSnapshots.length > 0 || Boolean(selectedSession.sizing)}
             hasComparison={Boolean(comparison)}
             loadedEventCount={data.loadedSessionEventCount}
             totalEventCount={data.totalSessionEventCount}

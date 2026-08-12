@@ -1,24 +1,125 @@
-import type { PortfolioSizingSnapshot } from "@/lib/types";
+import type { PortfolioSizingSnapshot, StrategySizingSnapshot } from "@/lib/types";
 
 export function PortfolioSizing({
-  sizing
+  sizing,
+  snapshots = []
 }: {
   sizing?: PortfolioSizingSnapshot;
+  snapshots?: StrategySizingSnapshot[];
 }) {
-  if (!sizing) return null;
+  const items = snapshots.length > 0
+    ? snapshots
+    : sizing
+      ? [{ id: "session", createdAt: "", sizing }]
+      : [];
+  if (items.length === 0) return null;
 
+  const [latest, ...history] = items;
+
+  return (
+    <section id="portfolio-sizing" className="scroll-mt-16 grid gap-4 rounded-md border border-border bg-muted/20 p-3">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/70 pb-3">
+        <div>
+          <h2 className="text-sm font-semibold">Portfolio sizing snapshots</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Latest calculation expanded. Historical distributions stay collapsed until needed.
+          </p>
+        </div>
+        <div className="font-mono text-xs tabular-nums text-muted-foreground">
+          {items.length} calculation{items.length === 1 ? "" : "s"}
+        </div>
+      </div>
+      <SizingSnapshotPanel snapshot={latest} latest />
+      {history.length > 0 ? <SizingHistory snapshots={history} latest={latest} /> : null}
+    </section>
+  );
+}
+
+function SizingHistory({
+  snapshots,
+  latest
+}: {
+  snapshots: StrategySizingSnapshot[];
+  latest: StrategySizingSnapshot;
+}) {
+  return (
+    <section className="overflow-hidden rounded-md border border-border bg-background/30">
+      <div className="hidden grid-cols-[minmax(132px,1.4fr)_minmax(84px,0.7fr)_minmax(84px,0.7fr)_minmax(92px,0.8fr)] gap-3 border-b border-border bg-muted/30 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+        <span>Calculation</span>
+        <span className="text-right">Sizing</span>
+        <span className="text-right">Change</span>
+        <span className="text-right">Pctl value</span>
+      </div>
+      <div className="divide-y divide-border">
+        {snapshots.map((snapshot) => {
+          const delta = snapshot.sizing.computedPct - latest.sizing.computedPct;
+          return (
+            <details key={snapshot.id} className="group">
+              <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 text-xs transition-colors hover:bg-muted/30 focus-visible:bg-muted/30 focus-visible:outline-none sm:grid-cols-[minmax(132px,1.4fr)_minmax(84px,0.7fr)_minmax(84px,0.7fr)_minmax(92px,0.8fr)]">
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-foreground">
+                    {formatSnapshotTime(snapshot.createdAt)}
+                  </span>
+                  <span className="block truncate pt-0.5 text-[11px] text-muted-foreground">
+                    {snapshot.sizing.source}
+                    {snapshot.sizing.sampleCount !== undefined
+                      ? ` / ${snapshot.sizing.sampleCount.toLocaleString()} samples`
+                      : ""}
+                  </span>
+                </span>
+                <span className="text-right font-mono tabular-nums text-primary sm:hidden">
+                  {formatSizingPercent(snapshot.sizing.computedPct)}
+                </span>
+                <span className="hidden text-right font-mono tabular-nums text-primary sm:block">
+                  {formatSizingPercent(snapshot.sizing.computedPct)}
+                </span>
+                <span className={`hidden text-right font-mono tabular-nums sm:block ${delta === 0 ? "text-muted-foreground" : delta > 0 ? "text-profit" : "text-loss"}`}>
+                  {formatSizingDelta(delta)}
+                </span>
+                <span className="hidden text-right font-mono tabular-nums text-muted-foreground sm:block">
+                  {money(snapshot.sizing.percentileValue)}
+                </span>
+              </summary>
+              <div className="border-t border-border bg-muted/10 p-3">
+                <SizingSnapshotPanel snapshot={snapshot} compact />
+              </div>
+            </details>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function SizingSnapshotPanel({
+  snapshot,
+  latest = false,
+  compact = false
+}: {
+  snapshot: StrategySizingSnapshot;
+  latest?: boolean;
+  compact?: boolean;
+}) {
+  const { sizing } = snapshot;
   const formulaValue =
     sizing.riskBudget !== undefined && sizing.percentileValue
       ? sizing.riskBudget / sizing.percentileValue
       : sizing.computedPct;
 
   return (
-    <section id="portfolio-sizing" className="scroll-mt-16 grid gap-3 rounded-md border border-border bg-muted/20 p-3">
+    <section className={compact ? "grid gap-3" : "grid gap-3 rounded-md border border-primary/25 bg-background/40 p-3"}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold">Portfolio sizing</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold">{sizing.source}</h3>
+            {latest ? (
+              <span className="rounded-sm border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                Latest
+              </span>
+            ) : null}
+          </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            {sizing.source}
+            {formatSnapshotTime(snapshot.createdAt)}
             {sizing.sampleCount !== undefined ? ` / ${sizing.sampleCount} samples` : ""}
           </p>
         </div>
@@ -26,7 +127,6 @@ export function PortfolioSizing({
           {formatSizingPercent(sizing.computedPct)}
         </div>
       </div>
-
       <div className="grid gap-2 text-sm sm:grid-cols-4">
         <SizingStat label="Bankroll" value={money(sizing.bankroll)} />
         <SizingStat label="Risk budget" value={money(sizing.riskBudget)} />
@@ -192,4 +292,20 @@ function formatSizingPercent(value: number) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 4
   })}%`;
+}
+
+function formatSizingDelta(value: number) {
+  if (value === 0) return "0.00 pp";
+  return `${value > 0 ? "+" : ""}${(value * 100).toFixed(2)} pp`;
+}
+
+function formatSnapshotTime(value: string) {
+  if (!value) return "Session default";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
 }

@@ -210,7 +210,7 @@ export function SessionDetail({
               ["Unknown deployments", session.dataQuality.eventsFromUnknownDeployments.toString()]
             ]}
           />
-          <PortfolioSizing sizing={session.sizing} />
+          <PortfolioSizing sizing={session.sizing} snapshots={session.sizingSnapshots} />
           <ConfigSnapshot config={session.configSnapshot} />
         </CardContent>
       </Card>

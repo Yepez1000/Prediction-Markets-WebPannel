@@ -291,7 +291,8 @@ model StrategySession {
   lastEventAt        DateTime? @map("last_event_at")
   notes              String?   @db.Text
 
-  reconciliations SessionReconciliation[]
+  reconciliations   SessionReconciliation[]
+  sizingSnapshots   StrategySizingSnapshot[]
 
   @@index([deploymentId], map: "ix_strategy_sessions_deployment")
   @@index([deploymentKey], map: "ix_strategy_sessions_deployment_key")
@@ -299,6 +300,18 @@ model StrategySession {
   @@index([sourceWallet], map: "ix_strategy_sessions_source_wallet")
   @@index([mode, lastEventAt], map: "ix_strategy_sessions_mode_last_event")
   @@map("strategy_sessions")
+}
+
+model StrategySizingSnapshot {
+  id                 BigInt          @id @default(autoincrement())
+  createdAt          DateTime        @default(now()) @map("created_at")
+  sessionId          String          @map("session_id") @db.VarChar(36)
+  sizingSnapshotJson String          @map("sizing_snapshot_json") @db.Text
+  session            StrategySession @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+
+  @@index([sessionId, createdAt], map: "ix_strategy_sizing_snapshots_session_created")
+  @@index([createdAt], map: "ix_strategy_sizing_snapshots_created_at")
+  @@map("strategy_sizing_snapshots")
 }
 
 model PriceHistory {

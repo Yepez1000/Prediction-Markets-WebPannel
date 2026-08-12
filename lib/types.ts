@@ -168,8 +168,15 @@ export type SessionSummary = DeploymentSummary & {
   sessionId: string;
   polymarketWalletUrl?: string;
   sizing?: PortfolioSizingSnapshot;
+  sizingSnapshots: StrategySizingSnapshot[];
   configSnapshot?: Record<string, unknown>;
   marketPositions: MarketPositionSummary[];
+};
+
+export type StrategySizingSnapshot = {
+  id: string;
+  createdAt: string;
+  sizing: PortfolioSizingSnapshot;
 };
 
 export type MarketPositionSummary = {

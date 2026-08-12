@@ -11,6 +11,7 @@ import type {
   MarketPositionSummary,
   PnlPoint,
   PortfolioSizingSnapshot,
+  StrategySizingSnapshot,
   RecentEvidence,
   RuntimeMode,
   RunStatus,
@@ -491,6 +492,7 @@ function createSessionSummary(row: {
     polymarketWalletUrl: row.polymarketWalletUrl ?? undefined,
     configSnapshot: parseJsonRecord(row.configSnapshotJson),
     sizing: parseSizingSnapshot(row.sizingSnapshotJson),
+    sizingSnapshots: [],
     marketPositions: []
   };
 }
@@ -1643,6 +1645,17 @@ export async function getDashboardData(
           return { events: [], hasMore: false };
         })
     : Promise.resolve({ events: [], hasMore: false });
+  const selectedSizingSnapshotsPromise = selectedSessionId
+    ? prisma.strategySizingSnapshot.findMany({
+        where: { sessionId: selectedSessionId },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: {
+          id: true,
+          createdAt: true,
+          sizingSnapshotJson: true
+        }
+      })
+    : Promise.resolve([]);
   const selectedEventCountPromise = selectedSessionId
     ? prisma.tradeAnalyticsEvent.count({ where: eventWhere(filters) })
     : Promise.resolve(undefined);
@@ -1651,7 +1664,7 @@ export async function getDashboardData(
     : loadOverviewMetrics(filters, [], []);
 
   try {
-    const [deploymentRows, sessionRows] = await Promise.all([
+    const [deploymentRows, sessionRows, selectedSizingSnapshots] = await Promise.all([
       prisma.strategyDeployment.findMany({
         where: deploymentWhere(filters),
         orderBy: [{ lastHeartbeatAt: "desc" }, { startedAt: "desc" }],
@@ -1699,7 +1712,8 @@ export async function getDashboardData(
           endedAt: true,
           lastEventAt: true
         }
-      })
+      }),
+      selectedSizingSnapshotsPromise
     ]);
 
     const deploymentMap = new Map<string, MutableSummary>();
@@ -1722,6 +1736,19 @@ export async function getDashboardData(
           (deploymentSessionCounts.get(row.deploymentKey) ?? 0) + 1
         );
       }
+    }
+    const selectedSession = selectedSessionId ? sessionMap.get(selectedSessionId) : undefined;
+    if (selectedSession) {
+      selectedSession.sizingSnapshots = selectedSizingSnapshots.flatMap((snapshot) => {
+        const sizing = parseSizingSnapshot(snapshot.sizingSnapshotJson);
+        return sizing
+          ? [{
+              id: snapshot.id.toString(),
+              createdAt: snapshot.createdAt.toISOString(),
+              sizing
+            } satisfies StrategySizingSnapshot]
+          : [];
+      });
     }
 
     const wantedDeploymentKeys = new Set([
