@@ -7,6 +7,7 @@ import type {
   DashboardData,
   DashboardFilters,
   DeploymentSummary,
+  DeploymentWalletPerformance,
   Kpi,
   MarketPositionSummary,
   PnlPoint,
@@ -1571,6 +1572,101 @@ async function loadSessionTrades(sessionId: string, mode: string, take?: number)
   ) as TradeLite[];
 }
 
+async function loadDeploymentWalletEvents(
+  sessionIds: string[],
+  filters: DashboardFilters
+): Promise<EventLite[]> {
+  if (sessionIds.length === 0) return [];
+
+  return getPrisma().tradeAnalyticsEvent.findMany({
+    where: {
+      sessionId: { in: sessionIds },
+      ...(dateRange(filters) ? { createdAt: dateRange(filters) } : {})
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: {
+      id: true,
+      createdAt: true,
+      eventType: true,
+      status: true,
+      strategyName: true,
+      allocationMode: true,
+      paperMode: true,
+      sessionId: true,
+      deploymentId: true,
+      deploymentKey: true,
+      instanceName: true,
+      configProfile: true,
+      marketId: true,
+      clobTokenId: true,
+      conditionId: true,
+      marketTitle: true,
+      outcome: true,
+      side: true,
+      requestedShares: true,
+      filledShares: true,
+      sourceWallet: true,
+      signalWalletsJson: true,
+      targetDollars: true,
+      targetShares: true,
+      fee: true,
+      netCashDelta: true,
+      grossCash: true,
+      price: true,
+      orderId: true,
+      sourcePositionSize: true,
+      contextJson: true
+    }
+  }) as Promise<EventLite[]>;
+}
+
+function buildDeploymentWalletPerformance(
+  sessions: Array<MutableSummary & SessionSummary>,
+  events: EventLite[]
+): DeploymentWalletPerformance[] {
+  const sessionsByWallet = new Map<string, Array<MutableSummary & SessionSummary>>();
+  for (const session of sessions) {
+    const wallet = session.followedWallet || "Unknown";
+    sessionsByWallet.set(wallet, [...(sessionsByWallet.get(wallet) ?? []), session]);
+  }
+
+  const walletBySessionId = new Map(
+    sessions.map((session) => [session.sessionId, session.followedWallet || "Unknown"])
+  );
+  const eventsByWallet = new Map<string, EventWithContext[]>();
+  for (const event of events) {
+    const wallet = event.sessionId ? walletBySessionId.get(event.sessionId) : undefined;
+    if (!wallet) continue;
+    eventsByWallet.set(wallet, [
+      ...(eventsByWallet.get(wallet) ?? []),
+      { ...event, context: parseJsonRecord(event.contextJson) ?? {} }
+    ]);
+  }
+
+  return Array.from(sessionsByWallet.entries())
+    .map(([wallet, walletSessions]) => {
+      const metrics = buildLifecycleMetrics(eventsByWallet.get(wallet) ?? []);
+      const closed = metrics.wins + metrics.losses;
+      return {
+        wallet,
+        sessionCount: walletSessions.length,
+        sessionIds: walletSessions.map((session) => session.sessionId),
+        totalPnl: metrics.realizedPnl + (metrics.unrealizedPnl ?? 0),
+        realizedPnl: metrics.realizedPnl,
+        fees: metrics.totalFees,
+        trades: metrics.tradeCount,
+        markets: metrics.marketPositions.length,
+        wins: metrics.wins,
+        losses: metrics.losses,
+        winRate: closed === 0 ? 0 : (metrics.wins / closed) * 100,
+        sharpeRatio: metrics.sharpeRatio,
+        totalVolume: metrics.totalVolume,
+        lastTradeAt: metrics.pnlSeries.at(-1)?.when
+      };
+    })
+    .sort((a, b) => b.totalPnl - a.totalPnl);
+}
+
 export async function getDashboardData(
   filters: DashboardFilters
 ): Promise<DashboardData> {
@@ -1690,7 +1786,7 @@ export async function getDashboardData(
       prisma.strategySession.findMany({
         where: sessionWhere(filters),
         orderBy: [{ startedAt: "desc" }, { lastEventAt: "desc" }],
-        take: filters.deployment && filters.deployment !== "all" ? 120 : 60,
+        ...(filters.deployment && filters.deployment !== "all" ? {} : { take: 60 }),
         select: {
           sessionId: true,
           deploymentId: true,
@@ -1757,6 +1853,23 @@ export async function getDashboardData(
         .map((row: { deploymentKey: string | null }) => row.deploymentKey)
         .filter(Boolean)
     ] as string[]);
+    const selectedDeploymentKey =
+      filters.deployment && filters.deployment !== "all" ? filters.deployment : undefined;
+    const deploymentSessions = selectedDeploymentKey
+      ? Array.from(sessionMap.values()).filter(
+          (session) =>
+            session.deploymentKey === selectedDeploymentKey ||
+            session.deploymentId === selectedDeploymentKey
+        )
+      : [];
+    const deploymentWalletEvents = await loadDeploymentWalletEvents(
+      deploymentSessions.map((session) => session.sessionId),
+      filters
+    );
+    const deploymentWallets = buildDeploymentWalletPerformance(
+      deploymentSessions,
+      deploymentWalletEvents
+    );
     const eventReadStartedAt = performance.now();
     let summaryEvents: EventLite[];
     let hasMoreSessionEvents = false;
@@ -1989,6 +2102,7 @@ export async function getDashboardData(
       warnings: warning,
       kpis: buildKpis(kpiSource),
       deployments,
+      deploymentWallets,
       sessions,
       wallets: [],
       strategies: [],
@@ -2097,6 +2211,7 @@ function emptyDashboard(appName: string, error: string): DashboardData {
     warnings: [],
     kpis: [],
     deployments: [],
+    deploymentWallets: [],
     sessions: [],
     wallets: [],
     strategies: [],

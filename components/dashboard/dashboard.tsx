@@ -74,6 +74,7 @@ export function Dashboard({
         ))}
         <DeploymentGrid
           deployments={data.deployments}
+          deploymentWallets={data.deploymentWallets}
           sessions={data.sessions}
           filters={filters}
         />

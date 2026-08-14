@@ -47,6 +47,23 @@ export type WalletSummary = {
   source: "event" | "signal" | "top-insider";
 };
 
+export type DeploymentWalletPerformance = {
+  wallet: string;
+  sessionCount: number;
+  sessionIds: string[];
+  totalPnl: number;
+  realizedPnl: number;
+  fees: number;
+  trades: number;
+  markets: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  sharpeRatio: number;
+  totalVolume: number;
+  lastTradeAt?: string;
+};
+
 export type StrategySummary = {
   strategy: string;
   allocationMode: string;
@@ -408,6 +425,7 @@ export type DashboardData = {
   kpis: Kpi[];
   warnings: string[];
   deployments: DeploymentSummary[];
+  deploymentWallets: DeploymentWalletPerformance[];
   sessions: SessionSummary[];
   wallets: WalletSummary[];
   strategies: StrategySummary[];

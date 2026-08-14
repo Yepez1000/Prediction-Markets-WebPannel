@@ -22,6 +22,7 @@ import {
 import type {
   DashboardFilters,
   DeploymentSummary,
+  DeploymentWalletPerformance,
   SessionSummary
 } from "@/lib/types";
 import { formatCurrency, formatPercent, shortWallet } from "@/lib/utils";
@@ -40,10 +41,12 @@ function detailHref(filters: DashboardFilters, next: Partial<DashboardFilters>) 
 
 export function DeploymentGrid({
   deployments,
+  deploymentWallets,
   sessions,
   filters
 }: {
   deployments: DeploymentSummary[];
+  deploymentWallets: DeploymentWalletPerformance[];
   sessions: SessionSummary[];
   filters: DashboardFilters;
 }) {
@@ -60,7 +63,11 @@ export function DeploymentGrid({
   return (
     <div className="grid min-w-0 gap-4">
       {selectedDeployment && !selectedSessionActive ? (
-        <DeploymentDetail deployment={selectedDeployment} sessions={selectedSessions} />
+        <DeploymentDetail
+          deployment={selectedDeployment}
+          sessions={selectedSessions}
+          wallets={deploymentWallets}
+        />
       ) : null}
 
       <Card>
@@ -160,10 +167,12 @@ export function DeploymentGrid({
 
 function DeploymentDetail({
   deployment,
-  sessions
+  sessions,
+  wallets
 }: {
   deployment: DeploymentSummary;
   sessions: SessionSummary[];
+  wallets: DeploymentWalletPerformance[];
 }) {
   const pnlSeries = combineSessionSeries(sessions);
   const chartStats = summarizeSeries(pnlSeries, sessions.flatMap((session) => session.pnlSeries.map((point) => point.delta)));
@@ -216,8 +225,78 @@ function DeploymentDetail({
             <DetailStat key={label} label={label} value={value} />
           ))}
         </div>
+        <DeploymentWalletTable wallets={wallets} />
       </CardContent>
     </Card>
+  );
+}
+
+function DeploymentWalletTable({
+  wallets
+}: {
+  wallets: DeploymentWalletPerformance[];
+}) {
+  return (
+    <section className="rounded-md border border-border">
+      <div className="border-b border-border bg-muted/20 px-3 py-2">
+        <h2 className="text-sm font-semibold">Wallet performance</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Combined across this deployment&apos;s sessions by source wallet.
+        </p>
+      </div>
+      {wallets.length === 0 ? (
+        <div className="p-3 text-sm text-muted-foreground">
+          No source-wallet sessions match this deployment.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="border-b border-border text-xs text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">Source wallet</th>
+                <th className="px-3 py-2 text-right font-medium">Sessions</th>
+                <th className="px-3 py-2 text-right font-medium">PnL</th>
+                <th className="px-3 py-2 text-right font-medium">Win rate</th>
+                <th className="px-3 py-2 text-right font-medium">Sharpe</th>
+                <th className="px-3 py-2 text-right font-medium">Trades</th>
+                <th className="px-3 py-2 text-right font-medium">Markets</th>
+                <th className="px-3 py-2 text-right font-medium">Volume</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {wallets.map((wallet) => (
+                <tr key={wallet.wallet} className="bg-card hover:bg-muted/30">
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {wallet.wallet}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                    {wallet.sessionCount}
+                  </td>
+                  <td className={wallet.totalPnl >= 0 ? "px-3 py-2 text-right font-mono tabular-nums text-profit" : "px-3 py-2 text-right font-mono tabular-nums text-loss"}>
+                    {formatCurrency(wallet.totalPnl)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                    {formatPercent(wallet.winRate)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                    {wallet.sharpeRatio.toFixed(2)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                    {wallet.trades}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                    {wallet.markets}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                    {formatCurrency(wallet.totalVolume)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 
