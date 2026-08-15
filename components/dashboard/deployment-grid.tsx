@@ -100,9 +100,10 @@ export function DeploymentGrid({
             <EmptyState message="No Docker deployments match the current filters." />
           ) : (
             <div className="overflow-hidden rounded-md border border-border">
-              <div className="hidden grid-cols-[minmax(0,1fr)_150px_120px_110px_86px] items-center border-b border-border bg-muted/20 px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
+              <div className="hidden grid-cols-[minmax(0,1fr)_150px_80px_120px_110px_86px] items-center border-b border-border bg-muted/20 px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
                 <span>Deployment</span>
                 <span>Started</span>
+                <span className="text-right">Trades</span>
                 <span className="text-right">PnL</span>
                 <span>Win rate</span>
                 <span>Mode</span>
@@ -423,7 +424,7 @@ function DeploymentRow({
 }) {
   return (
     <div className="bg-card px-3 py-2 hover:bg-muted/30">
-      <Link href={href} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_150px_120px_110px_86px] md:items-center">
+      <Link href={href} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_150px_80px_120px_110px_86px] md:items-center">
         <RunName
           icon={<Box className="size-4 text-primary" />}
           title={deployment.label}
@@ -431,6 +432,9 @@ function DeploymentRow({
         />
         <span className="font-mono text-xs tabular-nums text-muted-foreground">
           {new Date(deployment.startedAt).toLocaleString()}
+        </span>
+        <span className="text-right font-mono text-sm tabular-nums">
+          {deployment.trades}
         </span>
         <PnlValue value={deployment.netPnl} />
         <span className="font-mono text-sm tabular-nums">
