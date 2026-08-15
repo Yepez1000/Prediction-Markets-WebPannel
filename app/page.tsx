@@ -4,7 +4,7 @@ import {
   SessionComparisonSkeleton
 } from "@/components/dashboard/session-comparison";
 import { getDashboardData } from "@/lib/analytics";
-import { getSessionComparison } from "@/lib/reconciliation";
+import { getSessionComparison, getWalletComparison } from "@/lib/reconciliation";
 import type { DashboardFilters } from "@/lib/types";
 import { Suspense } from "react";
 
@@ -41,6 +41,8 @@ export default async function Home({
     pnlUnit: readParam(params, "pnlUnit") as DashboardFilters["pnlUnit"],
     deploymentSort: readParam(params, "deploymentSort") as DashboardFilters["deploymentSort"],
     deploymentDirection: readParam(params, "deploymentDirection") as DashboardFilters["deploymentDirection"],
+    deploymentPage: readParam(params, "deploymentPage"),
+    deploymentLimit: readParam(params, "deploymentLimit"),
     sessionSort: readParam(params, "sessionSort") as DashboardFilters["sessionSort"],
     sessionDirection: readParam(params, "sessionDirection") as DashboardFilters["sessionDirection"],
     tradePage: readParam(params, "tradePage"),
@@ -49,17 +51,24 @@ export default async function Home({
   };
 
   const sessionId = filters.session && filters.session !== "all" ? filters.session : undefined;
-  const comparisonPromise = sessionId
+  const deploymentKey = filters.deployment && filters.deployment !== "all"
+    ? filters.deployment
+    : undefined;
+  const wallet = deploymentKey && filters.wallet ? filters.wallet : undefined;
+  const comparisonPromise = wallet
+    ? getWalletComparison(deploymentKey!, wallet, filters)
+    : sessionId
     ? getSessionComparison(sessionId, filters)
     : undefined;
   const data = await getDashboardData(filters);
 
-  const comparison = sessionId ? (
+  const comparison = wallet || sessionId ? (
     <Suspense fallback={<SessionComparisonSkeleton />}>
       <SessionComparison
-        sessionId={sessionId}
+        sessionId={wallet ? `wallet:${deploymentKey}:${wallet}` : sessionId!}
         filters={filters}
         comparisonPromise={comparisonPromise}
+        scopeLabel={wallet ? "Deployment wallet" : "Session"}
       />
     </Suspense>
   ) : undefined;
