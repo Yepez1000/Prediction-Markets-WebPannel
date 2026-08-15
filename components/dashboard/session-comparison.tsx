@@ -18,11 +18,13 @@ import { cn, formatCurrency, shortWallet } from "@/lib/utils";
 export async function SessionComparison({
   sessionId,
   filters,
-  comparisonPromise
+  comparisonPromise,
+  scopeLabel = "Session"
 }: {
   sessionId: string;
   filters: DashboardFilters;
   comparisonPromise?: Promise<SessionComparisonData | undefined>;
+  scopeLabel?: string;
 }) {
   const comparison = await (comparisonPromise ?? getSessionComparison(sessionId, filters));
   if (!comparison) return null;
@@ -51,7 +53,7 @@ export async function SessionComparison({
                 <GitCompareArrows className="size-4 text-primary" /> Copy fidelity
               </CardTitle>
               <CardDescription className="mt-1">
-                Session versus source {shortWallet(comparison.sourceWallet)} · {new Date(comparison.startedAt).toLocaleString()} onward
+                {scopeLabel} versus source {shortWallet(comparison.sourceWallet)} · {new Date(comparison.startedAt).toLocaleString()} onward
               </CardDescription>
             </div>
             <div className="flex flex-wrap gap-1">

@@ -13,9 +13,11 @@ import type { MarketPositionSummary } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
 export function MarketPositions({
-  positions
+  positions,
+  scopeLabel = "session"
 }: {
   positions: MarketPositionSummary[];
+  scopeLabel?: string;
 }) {
   return (
     <Card id="market-positions" className="scroll-mt-16">
@@ -28,7 +30,7 @@ export function MarketPositions({
       <CardContent>
         {positions.length === 0 ? (
           <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-            No filled market positions loaded for this session.
+              No filled market positions loaded for this {scopeLabel}.
           </div>
         ) : (
           <div className="overflow-x-auto">

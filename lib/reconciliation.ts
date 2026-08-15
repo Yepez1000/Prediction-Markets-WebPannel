@@ -1119,6 +1119,156 @@ export async function getSessionComparison(
   return value;
 }
 
+export async function getWalletComparison(
+  deploymentKey: string,
+  sourceWallet: string,
+  filters: DashboardFilters
+): Promise<SessionComparison | undefined> {
+  const prisma = getPrisma();
+  const sessions = await prisma.strategySession.findMany({
+    where: { deploymentKey, sourceWallet },
+    orderBy: { startedAt: "asc" },
+    select: {
+      sessionId: true,
+      startedAt: true,
+      endedAt: true,
+      lastEventAt: true,
+      initialBankroll: true,
+      sizingSnapshotJson: true
+    }
+  });
+  if (sessions.length === 0) return undefined;
+
+  const historyScope = sessionHistoryScope(filters);
+  const rawEvents = await prisma.tradeAnalyticsEvent.findMany({
+    where: { sessionId: { in: sessions.map((session) => session.sessionId) } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    ...(historyScope.limit ? { take: historyScope.limit + 1 } : {}),
+    select: {
+      createdAt: true,
+      eventType: true,
+      status: true,
+      conditionId: true,
+      clobTokenId: true,
+      marketTitle: true,
+      outcome: true,
+      side: true,
+      requestedShares: true,
+      filledShares: true,
+      price: true,
+      grossCash: true,
+      fee: true,
+      targetShares: true,
+      heldAfter: true,
+      sourcePositionSize: true,
+      contextJson: true
+    }
+  });
+  const hasMoreEvents = historyScope.limit !== undefined && rawEvents.length > historyScope.limit;
+  const loadedEvents = (hasMoreEvents ? rawEvents.slice(0, -1) : rawEvents).reverse();
+  const events = await hydrateMissingConditionIds(
+    loadedEvents.filter(
+      (event) =>
+        ["order_fill", "fractional_fak_fill", "market_resolution"].includes(event.eventType) &&
+        ["FILLED", "PARTIAL", "RESOLVED"].includes(event.status)
+    )
+  );
+  const conditionIds = Array.from(new Set(events.flatMap((event) => event.conditionId ? [event.conditionId] : [])));
+  if (conditionIds.length === 0) return undefined;
+
+  const startedAt = sessions[0].startedAt;
+  const endedAt = sessions.reduce(
+    (latest, session) => {
+      const end = session.endedAt ?? session.lastEventAt ?? new Date();
+      return end > latest ? end : latest;
+    },
+    sessions[0].endedAt ?? sessions[0].lastEventAt ?? new Date()
+  );
+  const start = Math.floor(startedAt.getTime() / 1000);
+  const end = Math.floor(endedAt.getTime() / 1000);
+  const assets = Array.from(new Set(events.flatMap((event) => event.clobTokenId ? [event.clobTokenId] : [])));
+  const sourceScope = filters.sourceScope === "wallet" ? "wallet" : "matched";
+  const unit = filters.pnlUnit === "usd" ? "usd" : "percent";
+
+  try {
+    const activity = await getWalletActivity({ user: sourceWallet, start, end, conditionIds });
+    const [current, closed, nativePnl, resolutions] = await Promise.all([
+      loadOptional("current positions", { rows: [] as PolymarketPosition[], truncated: false }, () => getCurrentPositions(sourceWallet, conditionIds)),
+      loadOptional("closed positions", { rows: [] as PolymarketPosition[], truncated: false }, () => getClosedPositions(sourceWallet, conditionIds)),
+      sourceScope === "wallet"
+        ? loadOptional("native wallet PnL", [] as PolymarketPnlPoint[], () => getNativePnl(sourceWallet, "all"))
+        : Promise.resolve<OptionalSource<PolymarketPnlPoint[]>>({ value: [] }),
+      getResolutionMap(conditionIds)
+    ]);
+    const priceHistory = await loadOptional(
+      "historical prices",
+      new Map<string, PolymarketPricePoint[]>(),
+      () => getBatchPriceHistory({
+        assets: Array.from(new Set([...assets, ...activity.rows.flatMap((row) => row.asset ? [row.asset] : [])])),
+        start,
+        end,
+        fidelityMinutes: Math.max(5, Math.ceil((end - start) / 240 / 60))
+      })
+    );
+    const warnings = [
+      current.warning,
+      closed.warning,
+      nativePnl.warning,
+      resolutions.warning,
+      priceHistory.warning,
+      hasMoreEvents
+        ? `Comparison uses the most recent ${loadedEvents.length.toLocaleString()} wallet events. Load more history for a complete comparison.`
+        : undefined,
+      priceHistory.value.size === 0 ? "Historical prices were unavailable; fill prices are used as fallback marks." : undefined
+    ].filter((warning): warning is string => Boolean(warning));
+    return reconcileSession({
+      sessionId: `wallet:${deploymentKey}:${sourceWallet}`,
+      sourceWallet,
+      startedAt,
+      endedAt,
+      events,
+      activity: activity.rows,
+      currentPositions: current.value.rows,
+      closedPositions: closed.value.rows,
+      nativePnl: nativePnl.value,
+      prices: priceHistory.value,
+      sourceScope,
+      unit,
+      sessionBankroll: sessions.reduce((sum, session) => sum + (session.initialBankroll ?? 0), 0) || undefined,
+      portfolioSizingPct: undefined,
+      resolutions: resolutions.value,
+      truncated: activity.truncated || current.value.truncated || closed.value.truncated,
+      warnings,
+      loadedEventCount: loadedEvents.length,
+      historyComplete: !hasMoreEvents
+    });
+  } catch (error) {
+    return {
+      sessionId: `wallet:${deploymentKey}:${sourceWallet}`,
+      sourceWallet,
+      startedAt: startedAt.toISOString(),
+      endedAt: endedAt.toISOString(),
+      updatedAt: new Date().toISOString(),
+      sourceScope,
+      unit,
+      series: [],
+      realizedSeries: [],
+      positions: [],
+      summary: {
+        matchedPositions: 0, sourceOnlyPositions: 0, wrongOutcomePositions: 0,
+        correctSizePositions: 0, partialFillPositions: 0, ourPnl: 0, sourcePnl: 0,
+        pnlGap: 0, ourGrossBuyCapital: 0, sourceGrossBuyCapital: 0,
+        ourAttributionResidual: 0, sourceAttributionResidual: 0, factors: []
+      },
+      warnings: [],
+      truncated: false,
+      loadedEventCount: loadedEvents.length,
+      historyComplete: !hasMoreEvents,
+      error: error instanceof Error ? error.message : "Unable to load wallet comparison."
+    };
+  }
+}
+
 async function loadSessionComparison(
   sessionId: string,
   filters: DashboardFilters

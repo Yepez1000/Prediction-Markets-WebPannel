@@ -15,6 +15,8 @@ export type DashboardFilters = {
   pnlUnit?: "usd" | "percent";
   deploymentSort?: "date" | "pnl";
   deploymentDirection?: "asc" | "desc";
+  deploymentPage?: string;
+  deploymentLimit?: string;
   sessionSort?: "date" | "name" | "pnl" | "winRate" | "trades";
   sessionDirection?: "asc" | "desc";
   tradePage?: string;
@@ -30,6 +32,13 @@ export type Kpi = {
   value: string;
   detail: string;
   tone?: "profit" | "loss" | "neutral" | "caution";
+};
+
+export type Pagination = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 };
 
 export type WalletSummary = {
@@ -62,6 +71,15 @@ export type DeploymentWalletPerformance = {
   sharpeRatio: number;
   totalVolume: number;
   lastTradeAt?: string;
+};
+
+export type WalletDetail = DeploymentWalletPerformance & {
+  deploymentKey: string;
+  mode: RuntimeMode;
+  pnlSeries: PnlPoint[];
+  marketPositions: MarketPositionSummary[];
+  sizingSnapshots: StrategySizingSnapshot[];
+  evidence: RecentEvidence[];
 };
 
 export type StrategySummary = {
@@ -425,7 +443,9 @@ export type DashboardData = {
   kpis: Kpi[];
   warnings: string[];
   deployments: DeploymentSummary[];
+  deploymentPagination: Pagination;
   deploymentWallets: DeploymentWalletPerformance[];
+  walletDetail?: WalletDetail;
   sessions: SessionSummary[];
   wallets: WalletSummary[];
   strategies: StrategySummary[];

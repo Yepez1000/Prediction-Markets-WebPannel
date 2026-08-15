@@ -23,6 +23,7 @@ import type {
   DashboardFilters,
   DeploymentSummary,
   DeploymentWalletPerformance,
+  Pagination,
   SessionSummary
 } from "@/lib/types";
 import { formatCurrency, formatPercent, shortWallet } from "@/lib/utils";
@@ -41,11 +42,13 @@ function detailHref(filters: DashboardFilters, next: Partial<DashboardFilters>) 
 
 export function DeploymentGrid({
   deployments,
+  deploymentPagination,
   deploymentWallets,
   sessions,
   filters
 }: {
   deployments: DeploymentSummary[];
+  deploymentPagination: Pagination;
   deploymentWallets: DeploymentWalletPerformance[];
   sessions: SessionSummary[];
   filters: DashboardFilters;
@@ -67,6 +70,7 @@ export function DeploymentGrid({
           deployment={selectedDeployment}
           sessions={selectedSessions}
           wallets={deploymentWallets}
+          filters={filters}
         />
       ) : null}
 
@@ -82,7 +86,7 @@ export function DeploymentGrid({
               <DeploymentSortHeader label="PnL" value="pnl" filters={filters} />
               {selectedDeployment ? (
                 <Button asChild variant="outline" size="sm">
-                  <Link href={detailHref(filters, { deployment: "all", session: "all" })}>
+                  <Link href={detailHref(filters, { deployment: "all", session: "all", wallet: undefined })}>
                     <ArrowLeft className="size-4" />
                     All
                   </Link>
@@ -104,7 +108,7 @@ export function DeploymentGrid({
                 <span>Mode</span>
               </div>
               <div className="divide-y divide-border">
-                {deployments.slice(0, 20).map((deployment) => (
+                {deployments.map((deployment) => (
                   <DeploymentRow
                     key={deployment.id}
                     deployment={deployment}
@@ -118,6 +122,7 @@ export function DeploymentGrid({
               </div>
             </div>
           )}
+          <DeploymentPagination pagination={deploymentPagination} filters={filters} />
         </CardContent>
       </Card>
 
@@ -152,7 +157,8 @@ export function DeploymentGrid({
                     href={detailHref(filters, {
                       deployment: session.deploymentKey,
                       session: session.sessionId,
-                      mode: session.mode
+                      mode: session.mode,
+                      wallet: undefined
                     })}
                   />
                 ))}
@@ -165,14 +171,57 @@ export function DeploymentGrid({
   );
 }
 
+function DeploymentPagination({
+  pagination,
+  filters
+}: {
+  pagination: Pagination;
+  filters: DashboardFilters;
+}) {
+  if (pagination.total === 0) return null;
+  const first = (pagination.page - 1) * pagination.limit + 1;
+  const last = Math.min(pagination.page * pagination.limit, pagination.total);
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+      <span className="font-mono tabular-nums">
+        {first}-{last} of {pagination.total} deployments
+      </span>
+      <div className="flex flex-wrap items-center gap-1">
+        {[20, 50, 100].map((limit) => (
+          <Button key={limit} asChild variant={pagination.limit === limit ? "default" : "outline"} size="sm">
+            <Link href={detailHref(filters, { deploymentLimit: String(limit), deploymentPage: "1" })}>
+              {limit}
+            </Link>
+          </Button>
+        ))}
+        <Button asChild variant="outline" size="sm" disabled={pagination.page === 1}>
+          <Link href={detailHref(filters, { deploymentPage: String(Math.max(1, pagination.page - 1)) })}>
+            Previous
+          </Link>
+        </Button>
+        <span className="px-1 font-mono tabular-nums">
+          {pagination.page}/{pagination.totalPages}
+        </span>
+        <Button asChild variant="outline" size="sm" disabled={pagination.page === pagination.totalPages}>
+          <Link href={detailHref(filters, { deploymentPage: String(Math.min(pagination.totalPages, pagination.page + 1)) })}>
+            Next
+          </Link>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function DeploymentDetail({
   deployment,
   sessions,
-  wallets
+  wallets,
+  filters
 }: {
   deployment: DeploymentSummary;
   sessions: SessionSummary[];
   wallets: DeploymentWalletPerformance[];
+  filters: DashboardFilters;
 }) {
   const pnlSeries = combineSessionSeries(sessions);
   const chartStats = summarizeSeries(pnlSeries, sessions.flatMap((session) => session.pnlSeries.map((point) => point.delta)));
@@ -225,16 +274,18 @@ function DeploymentDetail({
             <DetailStat key={label} label={label} value={value} />
           ))}
         </div>
-        <DeploymentWalletTable wallets={wallets} />
+        <DeploymentWalletTable wallets={wallets} filters={filters} />
       </CardContent>
     </Card>
   );
 }
 
 function DeploymentWalletTable({
-  wallets
+  wallets,
+  filters
 }: {
   wallets: DeploymentWalletPerformance[];
+  filters: DashboardFilters;
 }) {
   return (
     <section className="rounded-md border border-border">
@@ -266,8 +317,10 @@ function DeploymentWalletTable({
             <tbody className="divide-y divide-border">
               {wallets.map((wallet) => (
                 <tr key={wallet.wallet} className="bg-card hover:bg-muted/30">
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {wallet.wallet}
+                  <td className="px-3 py-2 font-mono text-xs text-primary">
+                    <Link href={detailHref(filters, { wallet: wallet.wallet, session: "all" })}>
+                      {wallet.wallet}
+                    </Link>
                   </td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">
                     {wallet.sessionCount}

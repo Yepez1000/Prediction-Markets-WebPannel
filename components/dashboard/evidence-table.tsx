@@ -9,17 +9,23 @@ import {
 import type { RecentEvidence } from "@/lib/types";
 import { formatCurrency, shortWallet } from "@/lib/utils";
 
-export function EvidenceTable({ evidence }: { evidence: RecentEvidence[] }) {
+export function EvidenceTable({
+  evidence,
+  scopeLabel = "session"
+}: {
+  evidence: RecentEvidence[];
+  scopeLabel?: string;
+}) {
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle>Evidence</CardTitle>
-        <CardDescription>Recent trades and analytics events for this session.</CardDescription>
+          <CardDescription>Recent trades and analytics events for this {scopeLabel}.</CardDescription>
       </CardHeader>
       <CardContent>
         {evidence.length === 0 ? (
           <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-            No session evidence loaded.
+              No {scopeLabel} evidence loaded.
           </div>
         ) : (
           <div className="overflow-x-auto">

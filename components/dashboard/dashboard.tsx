@@ -6,6 +6,7 @@ import { DeploymentGrid } from "@/components/dashboard/deployment-grid";
 import { FilterBar } from "@/components/dashboard/filter-bar";
 import { HistoryControls } from "@/components/dashboard/history-controls";
 import { SessionDetail } from "@/components/dashboard/session-detail";
+import { WalletDetail } from "@/components/dashboard/wallet-detail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { DashboardData, DashboardFilters } from "@/lib/types";
@@ -23,6 +24,7 @@ export function Dashboard({
     filters.session && filters.session !== "all"
       ? data.sessions.find((session) => session.sessionId === filters.session)
       : undefined;
+  const selectedWallet = data.walletDetail;
 
   return (
     <main className="min-h-screen">
@@ -74,25 +76,32 @@ export function Dashboard({
         ))}
         <DeploymentGrid
           deployments={data.deployments}
+          deploymentPagination={data.deploymentPagination}
           deploymentWallets={data.deploymentWallets}
           sessions={data.sessions}
           filters={filters}
         />
-        {selectedSession ? (
+        {selectedSession || selectedWallet ? (
           <SectionNav
-            hasSizing={selectedSession.sizingSnapshots.length > 0 || Boolean(selectedSession.sizing)}
+            hasSizing={selectedSession
+              ? selectedSession.sizingSnapshots.length > 0 || Boolean(selectedSession.sizing)
+              : selectedWallet!.sizingSnapshots.length > 0}
             hasComparison={Boolean(comparison)}
             loadedEventCount={data.loadedSessionEventCount}
             totalEventCount={data.totalSessionEventCount}
             hasMoreEvents={data.hasMoreSessionEvents}
           />
         ) : null}
-        <SessionDetail
-          session={selectedSession}
-          evidence={data.evidence}
-          loadedEventCount={data.loadedSessionEventCount}
-          hasMoreEvents={data.hasMoreSessionEvents}
-        />
+        {selectedWallet ? (
+          <WalletDetail wallet={selectedWallet} />
+        ) : (
+          <SessionDetail
+            session={selectedSession}
+            evidence={data.evidence}
+            loadedEventCount={data.loadedSessionEventCount}
+            hasMoreEvents={data.hasMoreSessionEvents}
+          />
+        )}
         {comparison}
         <footer className="pb-4 text-xs text-muted-foreground">
           Last read {new Date(data.updatedAt).toLocaleString()}. Read-only.

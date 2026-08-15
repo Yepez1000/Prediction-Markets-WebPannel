@@ -16,7 +16,8 @@ import type {
   RecentEvidence,
   RuntimeMode,
   RunStatus,
-  SessionSummary
+  SessionSummary,
+  WalletDetail
 } from "@/lib/types";
 
 type SignalWallet = {
@@ -371,6 +372,17 @@ function parseSizingSnapshot(json: string | null | undefined): PortfolioSizingSn
 
 function selectedMode(filters: DashboardFilters) {
   return filters.mode ?? "all";
+}
+
+function deploymentPageScope(filters: DashboardFilters, total: number) {
+  const requestedLimit = Number.parseInt(filters.deploymentLimit ?? "", 10);
+  const limit = [20, 50, 100].includes(requestedLimit) ? requestedLimit : 20;
+  const requestedPage = Number.parseInt(filters.deploymentPage ?? "1", 10);
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const page = Number.isFinite(requestedPage)
+    ? Math.min(Math.max(requestedPage, 1), totalPages)
+    : 1;
+  return { page, limit, total, totalPages };
 }
 
 function dateRange(filters: DashboardFilters) {
@@ -1667,6 +1679,51 @@ function buildDeploymentWalletPerformance(
     .sort((a, b) => b.totalPnl - a.totalPnl);
 }
 
+function buildWalletDetail(input: {
+  wallet: string;
+  deploymentKey: string;
+  sessions: Array<MutableSummary & SessionSummary>;
+  events: EventLite[];
+  sizingSnapshots: StrategySizingSnapshot[];
+}): WalletDetail {
+  const metrics = buildLifecycleMetrics(
+    input.events.map((event) => ({
+      ...event,
+      context: parseJsonRecord(event.contextJson) ?? {}
+    }))
+  );
+  const closed = metrics.wins + metrics.losses;
+  const modes = new Set(input.sessions.map((session) => session.mode));
+  return {
+    wallet: input.wallet,
+    deploymentKey: input.deploymentKey,
+    sessionCount: input.sessions.length,
+    sessionIds: input.sessions.map((session) => session.sessionId),
+    mode: modes.has("live") ? "live" : "paper",
+    totalPnl: metrics.realizedPnl + (metrics.unrealizedPnl ?? 0),
+    realizedPnl: metrics.realizedPnl,
+    fees: metrics.totalFees,
+    trades: metrics.tradeCount,
+    markets: metrics.marketPositions.length,
+    wins: metrics.wins,
+    losses: metrics.losses,
+    winRate: closed === 0 ? 0 : (metrics.wins / closed) * 100,
+    sharpeRatio: metrics.sharpeRatio,
+    totalVolume: metrics.totalVolume,
+    lastTradeAt: metrics.pnlSeries.at(-1)?.when,
+    pnlSeries: metrics.pnlSeries,
+    marketPositions: metrics.marketPositions,
+    sizingSnapshots: input.sizingSnapshots,
+    evidence: buildEvidence(
+      input.events.map((event) => ({
+        ...event,
+        context: parseJsonRecord(event.contextJson) ?? {}
+      })),
+      []
+    )
+  };
+}
+
 export async function getDashboardData(
   filters: DashboardFilters
 ): Promise<DashboardData> {
@@ -1764,7 +1821,6 @@ export async function getDashboardData(
       prisma.strategyDeployment.findMany({
         where: deploymentWhere(filters),
         orderBy: [{ lastHeartbeatAt: "desc" }, { startedAt: "desc" }],
-        take: 40,
         select: {
           deploymentId: true,
           deploymentKey: true,
@@ -1870,6 +1926,35 @@ export async function getDashboardData(
       deploymentSessions,
       deploymentWalletEvents
     );
+    const selectedWallet = selectedDeploymentKey ? filters.wallet : undefined;
+    const walletSessions = selectedWallet
+      ? deploymentSessions.filter((session) => session.followedWallet === selectedWallet)
+      : [];
+    const walletSizingSnapshots = walletSessions.length > 0
+      ? await prisma.strategySizingSnapshot.findMany({
+          where: { sessionId: { in: walletSessions.map((session) => session.sessionId) } },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: { id: true, createdAt: true, sizingSnapshotJson: true }
+        })
+      : [];
+    const walletDetail = selectedWallet && walletSessions.length > 0 && selectedDeploymentKey
+      ? buildWalletDetail({
+          wallet: selectedWallet,
+          deploymentKey: selectedDeploymentKey,
+          sessions: walletSessions,
+          events: deploymentWalletEvents.filter((event) =>
+            event.sessionId ? walletSessions.some((session) => session.sessionId === event.sessionId) : false
+          ),
+          sizingSnapshots: walletSizingSnapshots.flatMap((snapshot) => {
+            const sizing = parseSizingSnapshot(snapshot.sizingSnapshotJson);
+            return sizing ? [{
+              id: snapshot.id.toString(),
+              createdAt: snapshot.createdAt.toISOString(),
+              sizing
+            }] : [];
+          })
+        })
+      : undefined;
     const eventReadStartedAt = performance.now();
     let summaryEvents: EventLite[];
     let hasMoreSessionEvents = false;
@@ -2039,7 +2124,7 @@ export async function getDashboardData(
       }
     }
 
-    const deployments = Array.from(deploymentMap.entries())
+    const allDeployments = Array.from(deploymentMap.entries())
       .map(([key, deployment]) => {
         deployment.sessionCount = deploymentSessionCounts.get(key) ?? 0;
         deployment.markets = deployment.markets || deploymentMarkets.get(key)?.size || 0;
@@ -2058,6 +2143,11 @@ export async function getDashboardData(
         }
         return multiplier * (a.netPnl - b.netPnl);
       });
+    const deploymentPagination = deploymentPageScope(filters, allDeployments.length);
+    const deployments = allDeployments.slice(
+      (deploymentPagination.page - 1) * deploymentPagination.limit,
+      deploymentPagination.page * deploymentPagination.limit
+    );
 
     const sessions = Array.from(sessionMap.entries())
       .map(([id, session]) => {
@@ -2092,8 +2182,8 @@ export async function getDashboardData(
       mode === "all" ? ["Combined view includes paper and live sessions."] : [];
     const kpiSource = selectedSessionId
       ? sessions
-      : deployments.length > 0
-      ? deployments
+      : allDeployments.length > 0
+      ? allDeployments
       : sessions;
 
     const result = {
@@ -2102,7 +2192,9 @@ export async function getDashboardData(
       warnings: warning,
       kpis: buildKpis(kpiSource),
       deployments,
+      deploymentPagination,
       deploymentWallets,
+      walletDetail,
       sessions,
       wallets: [],
       strategies: [],
@@ -2211,7 +2303,9 @@ function emptyDashboard(appName: string, error: string): DashboardData {
     warnings: [],
     kpis: [],
     deployments: [],
+    deploymentPagination: deploymentPageScope({}, 0),
     deploymentWallets: [],
+    walletDetail: undefined,
     sessions: [],
     wallets: [],
     strategies: [],
