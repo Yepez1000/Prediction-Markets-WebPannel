@@ -1,7 +1,11 @@
+"use client";
+
+import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -13,17 +17,21 @@ import type { MarketPositionSummary } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
 export function MarketPositions({
-  positions
+  positions,
+  title = "Market positions",
+  description = "Reconstructed from fills using average cost basis."
 }: {
   positions: MarketPositionSummary[];
+  title?: string;
+  description?: string;
 }) {
+  const [visibleCount, setVisibleCount] = useState(40);
+  const visiblePositions = positions.slice(0, visibleCount);
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle>Market positions</CardTitle>
-        <CardDescription>
-          Reconstructed from fills using average cost basis.
-        </CardDescription>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent>
         {positions.length === 0 ? (
@@ -47,7 +55,7 @@ export function MarketPositions({
                 </tr>
               </thead>
               <tbody>
-                {positions.map((position) => (
+                {visiblePositions.map((position) => (
                   <tr key={position.key} className="border-b border-border/70 align-top">
                     <td className="max-w-[360px] py-2">
                       <div className="flex min-w-0 items-start gap-2">
@@ -59,7 +67,7 @@ export function MarketPositions({
                             href={position.polymarketUrl}
                             target="_blank"
                             className="shrink-0 text-primary hover:text-primary/80"
-                            aria-label="Open Polymarket search"
+                            aria-label="Open market on Polymarket"
                           >
                             <ExternalLink className="size-3.5" />
                           </Link>
@@ -112,6 +120,7 @@ export function MarketPositions({
                 ))}
               </tbody>
             </table>
+            {visibleCount < positions.length ? <div className="pt-4 text-center"><Button variant="outline" size="sm" onClick={() => setVisibleCount((count) => count + 40)}>Show 40 more</Button></div> : null}
           </div>
         )}
       </CardContent>

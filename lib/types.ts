@@ -1,4 +1,6 @@
 export type DashboardFilters = {
+  view?: "overview" | "deployments" | "sessions";
+  returnTo?: "deployments" | "sessions";
   mode?: string;
   strategy?: string;
   deployment?: string;

@@ -1,4 +1,9 @@
+"use client";
+
+import { useState } from "react";
+
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -10,16 +15,18 @@ import type { RecentEvidence } from "@/lib/types";
 import { formatCurrency, shortWallet } from "@/lib/utils";
 
 export function EvidenceTable({ evidence }: { evidence: RecentEvidence[] }) {
+  const [visibleCount, setVisibleCount] = useState(40);
+  const visibleEvidence = evidence.slice(0, visibleCount);
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle>Evidence</CardTitle>
-        <CardDescription>Recent trades and analytics events for this session.</CardDescription>
+        <CardTitle>Placed trades</CardTitle>
+        <CardDescription>Most recent trades first.</CardDescription>
       </CardHeader>
       <CardContent>
         {evidence.length === 0 ? (
           <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-            No session evidence loaded.
+              No placed trades were recorded for this session.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -35,7 +42,7 @@ export function EvidenceTable({ evidence }: { evidence: RecentEvidence[] }) {
                 </tr>
               </thead>
               <tbody>
-                {evidence.map((row) => (
+                {visibleEvidence.map((row) => (
                   <tr key={row.id} className="border-b border-border/70 align-top">
                     <td className="py-2 font-mono text-xs text-muted-foreground">
                       {new Date(row.when).toLocaleString()}
@@ -68,6 +75,7 @@ export function EvidenceTable({ evidence }: { evidence: RecentEvidence[] }) {
                 ))}
               </tbody>
             </table>
+            {visibleCount < evidence.length ? <div className="pt-4 text-center"><Button variant="outline" size="sm" onClick={() => setVisibleCount((count) => count + 40)}>Show 40 more</Button></div> : null}
           </div>
         )}
       </CardContent>

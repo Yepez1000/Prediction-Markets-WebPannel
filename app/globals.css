@@ -3,24 +3,24 @@
 @tailwind utilities;
 
 :root {
-  --background: 222 24% 6%;
-  --foreground: 210 20% 92%;
-  --card: 222 18% 9%;
-  --card-foreground: 210 20% 92%;
-  --muted: 222 14% 14%;
-  --muted-foreground: 215 10% 60%;
-  --border: 222 12% 20%;
-  --input: 222 16% 11%;
-  --ring: 214 95% 58%;
-  --primary: 214 95% 58%;
+  --background: 0 0% 12%;
+  --foreground: 240 5% 92%;
+  --card: 0 0% 18%;
+  --card-foreground: 240 5% 92%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 240 5% 62%;
+  --border: 0 0% 25%;
+  --input: 0 0% 16%;
+  --ring: 236 92% 76%;
+  --primary: 239 84% 67%;
   --primary-foreground: 0 0% 100%;
   --destructive: 0 72% 58%;
   --destructive-foreground: 0 0% 100%;
-  --profit: 145 64% 48%;
+  --profit: 158 64% 51%;
   --loss: 0 72% 58%;
   --caution: 42 84% 56%;
-  --source: 265 83% 72%;
-  --radius: 0.5rem;
+  --source: 230 94% 82%;
+  --radius: 0.875rem;
 }
 
 * {
@@ -33,7 +33,7 @@ html {
 
 body {
   @apply min-h-screen bg-background text-foreground antialiased;
-  background: hsl(var(--background));
+  background: radial-gradient(circle at top right, hsl(236 92% 76% / 0.08), transparent 28rem), hsl(var(--background));
 }
 
 ::selection {
@@ -54,4 +54,25 @@ body {
   color: hsl(var(--muted-foreground));
   font-family: var(--font-mono, ui-monospace), SFMono-Regular, Menlo, monospace;
   letter-spacing: 0;
+}
+
+.sidebar-open {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .peer:checked ~ aside .sidebar-label,
+  .peer:checked ~ aside .sidebar-close {
+    display: none;
+  }
+
+  .peer:checked ~ aside .sidebar-open {
+    display: block;
+  }
+
+  .peer:checked ~ aside nav a {
+    justify-content: center;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
 }

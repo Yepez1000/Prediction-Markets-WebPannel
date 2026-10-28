@@ -1503,7 +1503,6 @@ async function loadSessionTrades(sessionId: string, mode: string) {
       : prisma.trade.findMany({
           where: { sessionId },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          take: 1000,
           select: {
             id: true,
             marketId: true,
@@ -1525,7 +1524,6 @@ async function loadSessionTrades(sessionId: string, mode: string) {
       : prisma.paperTrade.findMany({
           where: { sessionId },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          take: 1000,
           select: {
             id: true,
             marketId: true,
@@ -1566,7 +1564,7 @@ export async function getDashboardData(
 ): Promise<DashboardData> {
   const loadStartedAt = performance.now();
   const appName =
-    process.env.NEXT_PUBLIC_APP_NAME ?? "Wallet Performance Analytics";
+    process.env.NEXT_PUBLIC_APP_NAME ?? "Polymarket Dashboard";
 
   if (!process.env.DATABASE_URL) {
     return emptyDashboard(appName, "Add DATABASE_URL to connect the Neon database.");
@@ -1992,16 +1990,8 @@ export async function getDashboardData(
 }
 
 function buildEvidence(events: EventWithContext[], trades: TradeLite[]): RecentEvidence[] {
-  const evidenceEvents = [
-    ...events.filter(isLifecycleFillEvent).slice(-30),
-    ...events
-      .filter(
-        (event) =>
-          !isLifecycleFillEvent(event) && event.eventType !== "sizing_snapshot"
-      )
-      .slice(-10)
-  ];
-  const eventEvidence: RecentEvidence[] = evidenceEvents
+  const eventEvidence: RecentEvidence[] = events
+    .filter(isLifecycleFillEvent)
     .map((event) => ({
       id: `event-${event.id.toString()}`,
       when: event.createdAt.toISOString(),
@@ -2017,7 +2007,7 @@ function buildEvidence(events: EventWithContext[], trades: TradeLite[]): RecentE
       fee: Math.abs(parseNumber(event.fee))
     }));
 
-  const tradeEvidence: RecentEvidence[] = trades.slice(-30).map((trade) => ({
+  const tradeEvidence: RecentEvidence[] = trades.map((trade) => ({
     id: `trade-${trade.paperMode ? "paper" : "live"}-${trade.id.toString()}`,
     when: (trade.createdAt ?? new Date(trade.timestamp)).toISOString(),
     mode: trade.paperMode ? "paper" : "live",
@@ -2032,9 +2022,8 @@ function buildEvidence(events: EventWithContext[], trades: TradeLite[]): RecentE
     fee: 0
   }));
 
-  return [...eventEvidence, ...tradeEvidence]
-    .sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime())
-    .slice(0, 40);
+  const rows = tradeEvidence.length > 0 ? tradeEvidence : eventEvidence;
+  return rows.sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime());
 }
 
 function emptyDashboard(appName: string, error: string): DashboardData {

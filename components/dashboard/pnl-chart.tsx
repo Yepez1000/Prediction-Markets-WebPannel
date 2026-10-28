@@ -20,7 +20,7 @@ export function PnlChart({ points }: { points: PnlPoint[] }) {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-[#111315] p-4">
+    <div className="rounded-xl border border-border bg-[#202020] p-4">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-xs font-medium uppercase text-muted-foreground">
@@ -29,7 +29,7 @@ export function PnlChart({ points }: { points: PnlPoint[] }) {
           <div
             className={cn(
               "mt-2 font-mono text-3xl font-semibold tabular-nums",
-              (active?.value ?? 0) >= 0 ? "text-primary" : "text-loss"
+              (active?.value ?? 0) >= 0 ? "text-profit" : "text-loss"
             )}
           >
             {formatCurrency(active?.value ?? 0)}
@@ -67,8 +67,8 @@ export function PnlChart({ points }: { points: PnlPoint[] }) {
       >
         <defs>
           <linearGradient id="pnl-area" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="rgb(59 130 246)" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="rgb(59 130 246)" stopOpacity="0" />
+            <stop offset="0%" stopColor="rgb(129 140 248)" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="rgb(129 140 248)" stopOpacity="0" />
           </linearGradient>
         </defs>
         <line
@@ -84,7 +84,7 @@ export function PnlChart({ points }: { points: PnlPoint[] }) {
         <path
           d={chart.linePath}
           fill="none"
-          stroke="rgb(59 130 246)"
+          stroke="rgb(129 140 248)"
           strokeWidth="3"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -105,8 +105,8 @@ export function PnlChart({ points }: { points: PnlPoint[] }) {
               cx={chart.coordinates[activeIndex].x}
               cy={chart.coordinates[activeIndex].y}
               r="4"
-              fill="rgb(59 130 246)"
-              stroke="rgb(17 19 21)"
+              fill="rgb(129 140 248)"
+              stroke="rgb(32 32 32)"
               strokeWidth="2"
               vectorEffect="non-scaling-stroke"
             />
